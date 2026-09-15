@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   web2ApiBaseUrl: 'http://localhost:8081/v1',
   web2ApiKey: '',
   groqApiKey: '',
-  groqModel: 'llama-3.3-70b-versatile',
+  groqModel: 'openai/gpt-oss-120b',
   globalAutoReply: true,
   autoReplyMinDelay: 3,
   autoReplyMaxDelay: 6,

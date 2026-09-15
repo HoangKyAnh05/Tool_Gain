@@ -380,19 +380,19 @@ export const SettingsView: React.FC = () => {
             {(aiProvider === 'groq'
               ? [
                   {
-                    id: 'llama-3.3-70b-versatile',
-                    name: 'Llama 3.3 70B (Khuyên dùng)',
-                    desc: 'Mạnh & Thông minh nhất trên Groq: Văn phong tiếng Việt mượt mà, hiểu sâu ngữ cảnh'
+                    id: 'openai/gpt-oss-120b',
+                    name: 'GPT OSS 120B (Khuyên dùng)',
+                    desc: 'Mạnh & Thông minh nhất (120B params): Văn phong tự nhiên, hiểu ý khách hàng và bạn bè chuẩn xác'
                   },
                   {
-                    id: 'deepseek-r1-distill-llama-70b',
-                    name: 'DeepSeek R1 70B',
-                    desc: 'Mô hình suy luận đỉnh cao DeepSeek R1 chạy trên siêu chip LPU'
+                    id: 'qwen/qwen3.8-27b',
+                    name: 'Qwen 3.8 27B',
+                    desc: 'Siêu tốc độ & Ngắn gọn: Phù hợp tư vấn bán hàng và chốt đơn nhanh'
                   },
                   {
-                    id: 'llama-3.1-8b-instant',
-                    name: 'Llama 3.1 8B (Siêu tốc)',
-                    desc: 'Tốc độ phản xạ cực nhanh (~800 tokens/giây), phản hồi tức thì'
+                    id: 'groq/compound',
+                    name: 'Groq Compound',
+                    desc: 'Mô hình đa nhiệm tối ưu hóa cho tác vụ xử lý tin nhắn'
                   }
                 ]
               : aiProvider === 'gemini_web2api'

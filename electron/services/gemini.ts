@@ -196,9 +196,9 @@ export class GeminiService {
       throw new Error('Chưa cấu hình Groq API Key trong Cài đặt');
     }
 
-    const effectiveModel = (modelName && (modelName.includes('llama') || modelName.includes('deepseek') || modelName.includes('qwen') || modelName.includes('gemma')))
+    const effectiveModel = (modelName && (modelName.includes('gpt-oss') || modelName.includes('qwen') || modelName.includes('groq') || modelName.includes('llama') || modelName.includes('deepseek')))
       ? modelName
-      : 'llama-3.3-70b-versatile';
+      : 'openai/gpt-oss-120b';
 
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
