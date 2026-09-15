@@ -37,6 +37,7 @@ export const SettingsView: React.FC = () => {
 
   const [minDelay, setMinDelay] = useState<number>(settings?.autoReplyMinDelay || 3);
   const [maxDelay, setMaxDelay] = useState<number>(settings?.autoReplyMaxDelay || 6);
+  const [defaultOption, setDefaultOption] = useState<1 | 2 | 3>(settings?.defaultAutoReplyOption || 1);
   const [sound, setSound] = useState<boolean>(settings?.soundNotification ?? true);
   const [typingSim, setTypingSim] = useState<boolean>(settings?.showTypingSimulation ?? true);
 
@@ -89,6 +90,7 @@ export const SettingsView: React.FC = () => {
       web2ApiBaseUrl: web2ApiBaseUrl.trim(),
       web2ApiKey: web2ApiKey.trim(),
       geminiModel: aiProvider !== 'groq' ? model : settings?.geminiModel || 'gemini-3.7-flash',
+      defaultAutoReplyOption: defaultOption,
       autoReplyMinDelay: Number(minDelay),
       autoReplyMaxDelay: Number(maxDelay),
       soundNotification: sound,
@@ -489,6 +491,42 @@ export const SettingsView: React.FC = () => {
               className="w-full accent-amber-500"
             />
             <span className="text-[10px] text-slate-500">Giới hạn thời gian ngẫu nhiên đếm ngược</span>
+          </div>
+        </div>
+
+        {/* Default Auto-Reply Option Selector */}
+        <div className="pt-2 border-t border-surface-800">
+          <div className="text-xs font-semibold text-white mb-1.5 flex items-center gap-1.5">
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>Phương án ưu tiên gửi khi Auto-Reply (Default Option)</span>
+          </div>
+          <p className="text-[11px] text-slate-400 mb-3">Chọn câu trả lời mặc định trong 3 phương án gợi ý mà AI sẽ tự động gửi</p>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { opt: 1, name: 'Option 1: Tự nhiên / Chuẩn xác', desc: 'Ngắn gọn, phản xạ tự nhiên chuẩn Gen Z' },
+              { opt: 2, name: 'Option 2: Chi tiết / Thân thiện', desc: 'Đầy đủ ý, ân cần hoặc mở rộng câu chuyện' },
+              { opt: 3, name: 'Option 3: Hóm hỉnh / Ngắn gọn', desc: 'Cực ngắn, hài hước, phản dame hoặc đùa vui' }
+            ].map(({ opt, name, desc }) => (
+              <div
+                key={opt}
+                onClick={() => setDefaultOption(opt as 1 | 2 | 3)}
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  defaultOption === opt
+                    ? 'bg-amber-500/15 border-amber-500 text-white shadow-sm ring-1 ring-amber-500/40'
+                    : 'bg-surface-950/60 border-surface-800 text-slate-400 hover:border-surface-700 hover:text-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-slate-200">{name}</span>
+                  {defaultOption === opt && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-surface-950">
+                      Mặc định
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 leading-relaxed">{desc}</p>
+              </div>
+            ))}
           </div>
         </div>
 

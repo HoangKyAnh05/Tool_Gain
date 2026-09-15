@@ -53,7 +53,8 @@ export class AutoReplyManager {
       personaId: contact.personaId
     });
 
-    const chosenReply = replyResponse.suggestedReplies[0] || 'Dạ em đã nhận được tin nhắn ạ.';
+    const optionIndex = Math.max(0, Math.min(2, ((settings.defaultAutoReplyOption || 1) - 1)));
+    const chosenReply = replyResponse.suggestedReplies[optionIndex] || replyResponse.suggestedReplies[0] || 'Dạ em đã nhận được tin nhắn ạ.';
 
     // When globalAutoReply is ON, always auto-send immediately
     const isAutoReplyAllowed = Boolean(settings.globalAutoReply);

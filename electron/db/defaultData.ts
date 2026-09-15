@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   groqApiKey: '',
   groqModel: 'openai/gpt-oss-120b',
   globalAutoReply: true,
+  defaultAutoReplyOption: 1,
   autoReplyMinDelay: 3,
   autoReplyMaxDelay: 6,
   showTypingSimulation: true,

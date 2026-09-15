@@ -70,6 +70,7 @@ export interface AppSettings {
   groqApiKey: string;
   groqModel: string;
   globalAutoReply: boolean;
+  defaultAutoReplyOption?: 1 | 2 | 3;
   autoReplyMinDelay: number;
   autoReplyMaxDelay: number;
   showTypingSimulation: boolean;

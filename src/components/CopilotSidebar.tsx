@@ -39,6 +39,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     personas,
     contacts,
     settings,
+    updateSettings,
     updateContact,
     savePersona,
     activeTimers,
@@ -435,6 +436,35 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
           </button>
         </div>
 
+        {/* Default Auto-Reply Option Selector Toolbar */}
+        <div className="flex items-center justify-between bg-surface-950/70 p-2 rounded-xl border border-surface-750/70">
+          <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1">
+            <Zap className="w-3 h-3 text-amber-400" />
+            <span>Mặc định Auto-Reply gửi:</span>
+          </span>
+          <div className="flex items-center gap-1">
+            {[1, 2, 3].map((opt) => {
+              const isActive = (settings?.defaultAutoReplyOption || 1) === opt;
+              return (
+                <button
+                  key={opt}
+                  onClick={async () => {
+                    await updateSettings({ defaultAutoReplyOption: opt as 1 | 2 | 3 });
+                  }}
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-amber-500 text-surface-950 shadow-sm shadow-amber-500/30'
+                      : 'bg-surface-800 text-slate-400 hover:text-slate-200 hover:bg-surface-750'
+                  }`}
+                  title={`Tự động gửi Option ${opt} khi có tin nhắn mới`}
+                >
+                  Option {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Suggestions List or Call-to-Action */}
         {suggestions.length === 0 ? (
           <div className="p-4 rounded-xl border border-dashed border-surface-750 bg-surface-950/40 text-center space-y-3">
@@ -465,7 +495,8 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         ) : (
         <div className="space-y-3">
           {suggestions.map((text, idx) => {
-            const isFirst = idx === 0;
+            const optNum = (idx + 1) as 1 | 2 | 3;
+            const isAutoDefault = (settings?.defaultAutoReplyOption || 1) === optNum;
             const isEditing = editingIndex === idx;
 
             const badgeLabel =
@@ -481,16 +512,34 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               <div
                 key={idx}
                 className={`p-3.5 rounded-xl border transition-all duration-200 relative group ${
-                  isFirst
-                    ? 'bg-surface-850 border-brand-500/40 shadow-sm shadow-brand-500/10'
+                  isAutoDefault
+                    ? 'bg-surface-850 border-amber-500/60 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
                     : 'bg-surface-850/70 border-surface-750 hover:border-surface-600'
                 }`}
               >
-                {/* Option Badge */}
+                {/* Option Badge & Default Status */}
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeColor}`}>
-                    {badgeLabel}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeColor}`}>
+                      Option {optNum}: {badgeLabel}
+                    </span>
+
+                    {isAutoDefault ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                        ⭐ Mặc định tự gửi
+                      </span>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          await updateSettings({ defaultAutoReplyOption: optNum });
+                        }}
+                        className="text-[10px] font-medium text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                        title={`Chọn Option ${optNum} làm phương án gửi mặc định`}
+                      >
+                        ☆ Đặt làm mặc định
+                      </button>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                     <button
