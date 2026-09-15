@@ -1,0 +1,47 @@
+{
+  "name": "ai-omnichannel-assistant",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Desktop AI Copilot & Auto-Reply for Zalo, Messenger, Telegram powered by Google Gemini",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "vite",
+    "build:preload": "esbuild electron/preload.ts --outfile=dist-electron/preload.cjs --format=cjs --platform=node --bundle --external:electron && esbuild electron/webview-preload.ts --outfile=dist-electron/webview-preload.cjs --format=cjs --platform=node --bundle --external:electron",
+    "build": "tsc && vite build && npm run build:preload",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "electron",
+    "gemini",
+    "ai-assistant",
+    "auto-reply",
+    "zalo",
+    "messenger",
+    "telegram"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.16.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.21",
+    "electron": "^35.0.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  }
+}
