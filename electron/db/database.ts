@@ -201,7 +201,7 @@ export class DatabaseManager {
       name,
       category: defaultCategory,
       personaId: defaultPersona.id,
-      autoReplyEnabled: defaultCategory === 'customer',
+      autoReplyEnabled: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -216,7 +216,7 @@ export class DatabaseManager {
     const targetPersonaId = personaId || this.getPersonaByCategory(category).id;
     contact.category = category;
     contact.personaId = targetPersonaId;
-    contact.autoReplyEnabled = category === 'customer';
+    contact.autoReplyEnabled = true;
     contact.updatedAt = new Date().toISOString();
     this.saveDatabase();
     return contact;

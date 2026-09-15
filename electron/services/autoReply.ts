@@ -55,13 +55,12 @@ export class AutoReplyManager {
 
     const chosenReply = replyResponse.suggestedReplies[0] || 'Dạ em đã nhận được tin nhắn ạ.';
 
-    // Check if auto-reply should be scheduled: allowed if globalAutoReply is ON and contact has not explicitly disabled it
-    const isAutoReplyAllowed =
-      Boolean(settings.globalAutoReply) &&
-      (contact.autoReplyEnabled !== false);
+    // When globalAutoReply is ON, always auto-send immediately
+    const isAutoReplyAllowed = Boolean(settings.globalAutoReply);
 
     if (isAutoReplyAllowed) {
-      const delay = Math.max(2, replyResponse.persona?.autoDelaySeconds || settings.autoReplyMinDelay || 4);
+      // Send immediately with 1 second delay
+      const delay = 1;
       this.scheduleAutoReply(platform, contactName, messageText, chosenReply, delay);
     }
 
@@ -74,7 +73,7 @@ export class AutoReplyManager {
         incomingMessage: messageText,
         replyResponse,
         isAutoReplyScheduled: isAutoReplyAllowed,
-        scheduledDelay: isAutoReplyAllowed ? (replyResponse.persona.autoDelaySeconds || 4) : 0
+        scheduledDelay: isAutoReplyAllowed ? 1 : 0
       });
     }
 
@@ -95,7 +94,7 @@ export class AutoReplyManager {
     this.cancelPending(key);
 
     const pendingId = `pending_${Date.now()}`;
-    let remaining = Math.max(2, delaySeconds);
+    let remaining = Math.max(1, delaySeconds);
 
     const pendingItem: PendingAutoReply = {
       id: pendingId,
