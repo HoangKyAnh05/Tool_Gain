@@ -11,17 +11,6 @@ export interface DatabaseSchema {
   chatLogs: ChatMessageRecord[];
 }
 
-export function cleanContactName(raw?: string): string {
-  if (!raw) return '';
-  let name = raw.trim();
-  name = name.replace(/^\(\d+\+?\)\s*/, '');
-  name = name.replace(/\s*[|\-–—]\s*(Messenger|Facebook|Meta).*$/i, '');
-  name = name.replace(/^(cuộc trò chuyện (với|của)|đoạn chat (với|của)|trò chuyện (với|của)|nhắn tin (với|của)|chat with|chats with|conversation with)\s+/i, '');
-  name = name.replace(/[\.…]+$/, '').trim();
-  name = name.replace(/\s+/g, ' ');
-  return name;
-}
-
 export class DatabaseManager {
   private dbPath: string;
   private data: DatabaseSchema;
@@ -54,34 +43,22 @@ export class DatabaseManager {
         const raw = fs.readFileSync(this.dbPath, 'utf-8');
         const parsed = JSON.parse(raw);
         const loadedSettings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
+        if (!loadedSettings.groqApiKey) {
+          loadedSettings.groqApiKey = '';
+        }
+        if (!loadedSettings.groqModel) {
+          loadedSettings.groqModel = 'openai/gpt-oss-120b';
+        }
         if (loadedSettings.geminiModel === 'gemini-2.0-flash' || !loadedSettings.geminiModel) {
           loadedSettings.geminiModel = 'gemini-3.7-flash';
         }
-
-        const rawContacts: Contact[] = parsed.contacts || [];
-        let contactsUpdated = false;
-        const cleanedContacts: Contact[] = rawContacts.map(c => {
-          const cleaned = cleanContactName(c.name);
-          if (cleaned && cleaned !== c.name) {
-            contactsUpdated = true;
-            return { ...c, name: cleaned };
-          }
-          return c;
-        });
-
-        const result: DatabaseSchema = {
+        return {
           settings: loadedSettings,
           personas: parsed.personas && parsed.personas.length > 0 ? parsed.personas : DEFAULT_PERSONAS,
-          contacts: cleanedContacts,
+          contacts: parsed.contacts || [],
           knowledgeItems: parsed.knowledgeItems && parsed.knowledgeItems.length > 0 ? parsed.knowledgeItems : DEFAULT_KNOWLEDGE_ITEMS,
           chatLogs: parsed.chatLogs || []
         };
-
-        if (contactsUpdated) {
-          this.saveDatabase(result);
-        }
-
-        return result;
       }
     } catch (err) {
       console.error('[DB] Error loading db file, re-initializing defaults:', err);
@@ -163,16 +140,11 @@ export class DatabaseManager {
     return this.data.contacts;
   }
 
-  public getOrCreateContact(platform: TargetPlatform, rawName: string, externalId?: string): Contact {
-    const name = cleanContactName(rawName) || rawName;
+  public getOrCreateContact(platform: TargetPlatform, name: string, externalId?: string): Contact {
     const existing = this.data.contacts.find(
       c => c.platform === platform && (c.name.toLowerCase() === name.toLowerCase() || (externalId && c.externalId === externalId))
     );
     if (existing) {
-      if (existing.name !== name && name) {
-        existing.name = name;
-        this.saveDatabase();
-      }
       return existing;
     }
 
@@ -204,8 +176,7 @@ export class DatabaseManager {
     return newContact;
   }
 
-  public saveContactCategory(platform: TargetPlatform, rawName: string, category: Contact['category'], personaId?: string): Contact {
-    const name = cleanContactName(rawName) || rawName;
+  public saveContactCategory(platform: TargetPlatform, name: string, category: Contact['category'], personaId?: string): Contact {
     const contact = this.getOrCreateContact(platform, name);
     const targetPersonaId = personaId || this.getPersonaByCategory(category).id;
     contact.category = category;

@@ -59,7 +59,7 @@ export interface ChatMessageRecord {
   personaUsedId?: string;
 }
 
-export type AIProvider = 'gemini_official' | 'gemini_web2api';
+export type AIProvider = 'groq' | 'gemini_official' | 'gemini_web2api';
 
 export interface AppSettings {
   aiProvider: AIProvider;
@@ -67,6 +67,8 @@ export interface AppSettings {
   geminiModel: string;
   web2ApiBaseUrl: string;
   web2ApiKey: string;
+  groqApiKey: string;
+  groqModel: string;
   globalAutoReply: boolean;
   autoReplyMinDelay: number;
   autoReplyMaxDelay: number;

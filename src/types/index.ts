@@ -59,7 +59,7 @@ export interface ChatMessageRecord {
   personaUsedId?: string;
 }
 
-export type AIProvider = 'gemini_official' | 'gemini_web2api';
+export type AIProvider = 'groq' | 'gemini_official' | 'gemini_web2api';
 
 export interface AppSettings {
   aiProvider: AIProvider;
@@ -67,6 +67,8 @@ export interface AppSettings {
   geminiModel: string;
   web2ApiBaseUrl: string;
   web2ApiKey: string;
+  groqApiKey: string;
+  groqModel: string;
   globalAutoReply: boolean;
   autoReplyMinDelay: number;
   autoReplyMaxDelay: number;
@@ -132,6 +134,7 @@ declare global {
       getChatLogs: (limit?: number) => Promise<ChatMessageRecord[]>;
       testApiKey: (apiKey: string, modelName?: string) => Promise<{ success: boolean; message: string }>;
       testWeb2Api: (baseUrl: string, apiKey: string, modelName?: string) => Promise<{ success: boolean; message: string }>;
+      testGroq: (apiKey: string, modelName?: string) => Promise<{ success: boolean; message: string }>;
       generateReply: (req: GenerateReplyRequest) => Promise<GenerateReplyResponse>;
       cancelAutoReply: (key: string) => Promise<boolean>;
       approveAndSendReply: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;

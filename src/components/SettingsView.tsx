@@ -24,11 +24,16 @@ import { AIProvider } from '../types';
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings } = useApp();
 
-  const [aiProvider, setAiProvider] = useState<AIProvider>(settings?.aiProvider || 'gemini_web2api');
+  const [aiProvider, setAiProvider] = useState<AIProvider>(settings?.aiProvider || 'groq');
+  const [groqApiKey, setGroqApiKey] = useState<string>(settings?.groqApiKey || '');
   const [apiKey, setApiKey] = useState<string>(settings?.geminiApiKey || '');
   const [web2ApiBaseUrl, setWeb2ApiBaseUrl] = useState<string>(settings?.web2ApiBaseUrl || 'http://localhost:8081/v1');
   const [web2ApiKey, setWeb2ApiKey] = useState<string>(settings?.web2ApiKey || 'none');
-  const [model, setModel] = useState<string>(settings?.geminiModel || 'gemini-3.7-flash');
+  const [model, setModel] = useState<string>(
+    settings?.aiProvider === 'groq'
+      ? settings?.groqModel || 'openai/gpt-oss-120b'
+      : settings?.geminiModel || 'gemini-3.7-flash'
+  );
 
   const [minDelay, setMinDelay] = useState<number>(settings?.autoReplyMinDelay || 3);
   const [maxDelay, setMaxDelay] = useState<number>(settings?.autoReplyMaxDelay || 6);
@@ -50,7 +55,14 @@ export const SettingsView: React.FC = () => {
         return;
       }
 
-      if (aiProvider === 'gemini_web2api') {
+      if (aiProvider === 'groq') {
+        if (!groqApiKey.trim()) {
+          setTestResult({ success: false, message: 'Vui lòng nhập Groq API Key trước khi kiểm tra.' });
+          return;
+        }
+        const res = await window.electronAPI.testGroq(groqApiKey.trim(), model);
+        setTestResult(res);
+      } else if (aiProvider === 'gemini_web2api') {
         const res = await window.electronAPI.testWeb2Api(web2ApiBaseUrl.trim(), web2ApiKey.trim(), model);
         setTestResult(res);
       } else {
@@ -71,10 +83,12 @@ export const SettingsView: React.FC = () => {
   const handleSaveAll = async () => {
     await updateSettings({
       aiProvider,
+      groqApiKey: groqApiKey.trim(),
+      groqModel: aiProvider === 'groq' ? model : settings?.groqModel || 'openai/gpt-oss-120b',
       geminiApiKey: apiKey.trim(),
       web2ApiBaseUrl: web2ApiBaseUrl.trim(),
       web2ApiKey: web2ApiKey.trim(),
-      geminiModel: model,
+      geminiModel: aiProvider !== 'groq' ? model : settings?.geminiModel || 'gemini-3.7-flash',
       autoReplyMinDelay: Number(minDelay),
       autoReplyMaxDelay: Number(maxDelay),
       soundNotification: sound,
@@ -163,7 +177,32 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Provider Cards */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
+          <div
+            onClick={() => {
+              setAiProvider('groq');
+              setModel('openai/gpt-oss-120b');
+            }}
+            className={`p-4 rounded-xl border cursor-pointer transition-all ${
+              aiProvider === 'groq'
+                ? 'bg-amber-500/15 border-amber-500 text-white shadow-sm ring-1 ring-amber-500/50'
+                : 'bg-surface-950/60 border-surface-800 text-slate-400 hover:border-surface-700 hover:text-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2 font-bold text-xs text-amber-300 font-mono">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>Groq Cloud (Siêu Tốc)</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                Miễn Phí 100%
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Tốc độ 300 tokens/s qua chip LPU. Miễn phí 14.400 req/ngày, không lo hết token hay 429.
+            </p>
+          </div>
+
           <div
             onClick={() => {
               setAiProvider('gemini_web2api');
@@ -178,14 +217,11 @@ export const SettingsView: React.FC = () => {
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-2 font-bold text-xs text-brand-300 font-mono">
                 <Server className="w-3.5 h-3.5 text-brand-400" />
-                <span>Gemini-Web2API (Miễn phí)</span>
+                <span>Gemini Web2API</span>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Khuyên Dùng
-              </span>
             </div>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Dùng proxy python từ repo <strong>Sophomoresty/gemini-web2api</strong>. Sử dụng mô hình <strong>Gemini 3.7 Flash</strong> không tốn phí token.
+              Dùng proxy python local port 8081 từ repo <strong>gemini-web2api</strong>. Gemini 3.7 Flash.
             </p>
           </div>
 
@@ -203,17 +239,47 @@ export const SettingsView: React.FC = () => {
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-2 font-bold text-xs text-indigo-300 font-mono">
                 <Key className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Google Gemini API (Official)</span>
+                <span>Google AI Official</span>
               </div>
             </div>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Kết nối trực tiếp máy chủ Google AI Studio qua khóa API cá nhân. Ổn định và trực tiếp.
+              Kết nối trực tiếp máy chủ Google AI Studio qua khóa API cá nhân.
             </p>
           </div>
         </div>
 
         {/* Dynamic Provider Settings */}
-        {aiProvider === 'gemini_web2api' ? (
+        {aiProvider === 'groq' ? (
+          <div className="space-y-3 pt-3 border-t border-surface-800">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300">Groq API Key (gsk_...):</label>
+              <button
+                onClick={() => handleOpenExternal('https://console.groq.com/keys')}
+                className="flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
+              >
+                <span>Lấy Groq Key tại console.groq.com</span>
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={groqApiKey}
+                onChange={(e) => setGroqApiKey(e.target.value)}
+                placeholder="gsk_..."
+                className="flex-1 text-xs font-mono bg-surface-950 border border-surface-750 rounded-xl px-3.5 py-2.5 text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+              />
+              <button
+                onClick={handleTestConnection}
+                disabled={testingConnection}
+                className="px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {testingConnection ? 'Đang kiểm tra...' : 'Kiểm tra Groq'}
+              </button>
+            </div>
+          </div>
+        ) : aiProvider === 'gemini_web2api' ? (
           <div className="space-y-3 pt-3 border-t border-surface-800">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300">
@@ -311,12 +377,30 @@ export const SettingsView: React.FC = () => {
             <span>Mô hình ngôn ngữ (Model):</span>
           </label>
           <div className="grid grid-cols-3 gap-3">
-            {(aiProvider === 'gemini_web2api'
+            {(aiProvider === 'groq'
+              ? [
+                  {
+                    id: 'openai/gpt-oss-120b',
+                    name: 'GPT OSS 120B',
+                    desc: 'Mạnh & Thông minh nhất (120B params): Văn phong tự nhiên, hiểu ý khách hàng chuẩn xác'
+                  },
+                  {
+                    id: 'qwen/qwen3.8-27b',
+                    name: 'Qwen 3.8 27B',
+                    desc: 'Siêu tốc độ & Ngắn gọn: Phù hợp tư vấn bán hàng và chốt đơn nhanh'
+                  },
+                  {
+                    id: 'groq/compound',
+                    name: 'Groq Compound',
+                    desc: 'Mô hình đa nhiệm tối ưu hóa cho tác vụ xử lý tin nhắn'
+                  }
+                ]
+              : aiProvider === 'gemini_web2api'
               ? [
                   {
                     id: 'gemini-3.7-flash',
                     name: 'Gemini 3.7 Flash',
-                    desc: 'Mới nhất & Khuyên dùng: Siêu thông minh, phản hồi tiếng Việt tự nhiên nhất'
+                    desc: 'Mới nhất: Siêu thông minh, phản hồi tiếng Việt tự nhiên nhất'
                   },
                   {
                     id: 'gemini-3.6-flash',

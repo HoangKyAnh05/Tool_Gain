@@ -111,6 +111,10 @@ function setupIpcHandlers() {
     return await geminiService.testWeb2Api(baseUrl, apiKey, modelName);
   });
 
+  ipcMain.handle('gemini:test-groq', async (_event, apiKey: string, modelName?: string) => {
+    return await geminiService.testGroq(apiKey, modelName);
+  });
+
   ipcMain.handle('gemini:generate-reply', async (_event, req: GenerateReplyRequest) => {
     return await geminiService.generateReply(req);
   });

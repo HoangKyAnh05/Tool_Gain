@@ -102,25 +102,31 @@ export const TopHeader: React.FC = () => {
           <span className="hidden sm:inline">Restart</span>
         </button>
 
-        {/* Gemini Engine Badge */}
+        {/* AI Engine Badge */}
         <div
           onClick={() => setActiveTab('settings')}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border cursor-pointer hover:border-brand-500/50 transition-all ${
-            settings?.aiProvider === 'gemini_web2api'
+            settings?.aiProvider === 'groq'
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+              : settings?.aiProvider === 'gemini_web2api'
               ? 'bg-brand-500/10 border-brand-500/30 text-brand-300'
               : hasApiKey
               ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
               : 'bg-amber-500/10 border-amber-500/20 text-amber-300'
           }`}
           title={
-            settings?.aiProvider === 'gemini_web2api'
+            settings?.aiProvider === 'groq'
+              ? `Groq Cloud: ${settings?.groqModel || 'openai/gpt-oss-120b'} (Siêu tốc & Miễn phí)`
+              : settings?.aiProvider === 'gemini_web2api'
               ? `Gemini-Web2API: ${settings?.geminiModel || 'gemini-3.7-flash'} (Miễn phí)`
               : hasApiKey
               ? `Google Official API: ${settings?.geminiModel}`
               : 'Chưa cấu hình API Key (đang dùng Smart Fallback)'
           }
         >
-          {settings?.aiProvider === 'gemini_web2api' ? (
+          {settings?.aiProvider === 'groq' ? (
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          ) : settings?.aiProvider === 'gemini_web2api' ? (
             <Sparkles className="w-3.5 h-3.5 text-brand-400" />
           ) : hasApiKey ? (
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
@@ -128,7 +134,9 @@ export const TopHeader: React.FC = () => {
             <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
           )}
           <span className="font-mono text-[11px]">
-            {settings?.geminiModel || 'gemini-3.7-flash'}
+            {settings?.aiProvider === 'groq'
+              ? settings?.groqModel || 'openai/gpt-oss-120b'
+              : settings?.geminiModel || 'gemini-3.7-flash'}
           </span>
         </div>
 

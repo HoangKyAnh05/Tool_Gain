@@ -74,6 +74,42 @@ export class GeminiService {
   }
 
   /**
+   * Test Groq API Key
+   */
+  public async testGroq(apiKey: string, modelName: string = 'openai/gpt-oss-120b'): Promise<{ success: boolean; message: string }> {
+    try {
+      if (!apiKey || apiKey.trim() === '') {
+        return { success: false, message: 'Vui lòng nhập Groq API Key' };
+      }
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey.trim()}`
+        },
+        body: JSON.stringify({
+          model: modelName || 'openai/gpt-oss-120b',
+          messages: [{ role: 'user', content: 'Trả lời ngắn: "Kết nối thành công"' }],
+          max_tokens: 30
+        })
+      });
+
+      if (!res.ok) {
+        const errJson: any = await res.json().catch(() => ({}));
+        const errMsg = errJson?.error?.message || `HTTP ${res.status}`;
+        return { success: false, message: `Lỗi Groq API: ${errMsg}` };
+      }
+
+      const data: any = await res.json();
+      const answer = data.choices?.[0]?.message?.content || 'Thành công';
+      return { success: true, message: `Kết nối thành công Groq (${modelName}): ${answer.trim()}` };
+    } catch (err: any) {
+      console.error('[Groq Test Error]:', err);
+      return { success: false, message: `Không thể kết nối đến Groq API: ${err?.message || err}` };
+    }
+  }
+
+  /**
    * Generate intelligent replies based on request and persona context
    */
   public async generateReply(req: GenerateReplyRequest): Promise<GenerateReplyResponse> {
@@ -83,11 +119,24 @@ export class GeminiService {
     const matchedKnowledge = contextEngine.findRelevantKnowledge(req.currentMessage);
 
     const { systemInstruction, userPrompt } = contextEngine.buildPrompt(req, persona, matchedKnowledge, contact);
-    const modelName = settings.geminiModel || 'gemini-3.7-flash';
 
-    // 1. If using Gemini-Web2API provider
+    // 1. If using Groq Provider (Fastest & Free)
+    if (settings.aiProvider === 'groq' || (!settings.geminiApiKey && settings.groqApiKey && settings.aiProvider !== 'gemini_web2api')) {
+      try {
+        const groqModel = settings.groqModel || 'openai/gpt-oss-120b';
+        return await this.generateViaGroq(settings, req, persona, matchedKnowledge, systemInstruction, userPrompt, groqModel);
+      } catch (err: any) {
+        console.warn('[Groq Generate Warning, falling back to local smart engine]:', err.message);
+        const fallback = this.generateSmartFallback(req, persona, matchedKnowledge);
+        fallback.error = `Groq API chưa phản hồi (${err.message}). Đã dùng bộ sinh thông minh dự phòng.`;
+        return fallback;
+      }
+    }
+
+    // 2. If using Gemini-Web2API provider
     if (settings.aiProvider === 'gemini_web2api' || (!settings.geminiApiKey && settings.web2ApiBaseUrl)) {
       try {
+        const modelName = settings.geminiModel || 'gemini-3.7-flash';
         return await this.generateViaWeb2Api(settings, req, persona, matchedKnowledge, systemInstruction, userPrompt, modelName);
       } catch (err: any) {
         console.warn('[Gemini Web2API Generate Warning, falling back to local smart engine]:', err.message);
@@ -97,13 +146,14 @@ export class GeminiService {
       }
     }
 
-    // 2. If using Official Google Gemini API
+    // 3. If using Official Google Gemini API
     const client = this.getClient();
     if (!client) {
       return this.generateSmartFallback(req, persona, matchedKnowledge);
     }
 
     try {
+      const modelName = settings.geminiModel || 'gemini-2.0-flash';
       const model = client.getGenerativeModel({
         model: modelName.includes('3.7') ? 'gemini-2.0-flash' : modelName,
         systemInstruction: {
@@ -127,6 +177,49 @@ export class GeminiService {
       fallback.error = `Lỗi Google API (${err?.message || 'Network error'}). Đã dùng bộ sinh thông minh dự phòng.`;
       return fallback;
     }
+  }
+
+  /**
+   * Generate reply via Groq Cloud API
+   */
+  private async generateViaGroq(
+    settings: AppSettings,
+    req: GenerateReplyRequest,
+    persona: Persona,
+    matchedKnowledge: ReturnType<typeof contextEngine.findRelevantKnowledge>,
+    systemInstruction: string,
+    userPrompt: string,
+    modelName: string
+  ): Promise<GenerateReplyResponse> {
+    const apiKey = settings.groqApiKey || '';
+    if (!apiKey) {
+      throw new Error('Chưa cấu hình Groq API Key trong Cài đặt');
+    }
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey.trim()}`
+      },
+      body: JSON.stringify({
+        model: modelName || 'openai/gpt-oss-120b',
+        messages: [
+          { role: 'system', content: systemInstruction + '\nBẮT BUỘC: Trả về kết quả dưới định dạng JSON thuần: {"suggestions": ["câu 1", "câu 2", "câu 3"], "detectedIntent": "...", "recommendedAction": "copilot_review"}' },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: persona.temperature || 0.5,
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Groq returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+    }
+
+    const data: any = await res.json();
+    const rawContent = data.choices?.[0]?.message?.content || '';
+    return this.parseAndFormatResponse(rawContent, persona, matchedKnowledge);
   }
 
   /**
@@ -253,26 +346,8 @@ export class GeminiService {
     }
     // 2. Friend Persona (Category === 'friend')
     else if (persona.category === 'friend') {
-      // 2.1 Gym / Training / Course / Deposit / Attendance / Schedule / Accounting
-      if (/(gym|tập|buổi|khóa|cọc|nghỉ|phép|điểm danh|tính buổi|tiền|1tr|700|học phí)/i.test(fullContext)) {
-        detectedIntent = 'Tính số buổi / Học phí / Điểm danh khóa';
-        suggestions = [
-          'Dạ chuẩn rồi a, để e đối chiếu lại số buổi rồi tính trừ tiền cọc đợt này cho a nhé!',
-          'Ok a ơi, tính các buổi có phép và không phép thì chuẩn như a tính rồi ạ, để e chốt lại luôn nhé!',
-          'Đúng rồi a, để e tổng kết lại lịch và gửi lại a xác nhận nha!'
-        ];
-      }
-      // 2.2 Date / Schedule / Calendar ("đầu tuần", "tuần này", "tuần trước", ngày tháng)
-      else if (/(đầu tuần|tuần này|tuần trước|hôm|ngày|tháng|\d{1,2}\/\d{1,2})/i.test(fullContext)) {
-        detectedIntent = 'Xác nhận mốc thời gian / Lịch trình';
-        suggestions = [
-          'Chuẩn mốc thời gian đó rồi a/bro, để e check lại lịch xem nhé!',
-          'Ok đúng lịch rồi, để e xem lại chi tiết rồi nhắn lại a liền nha!',
-          'Nhất trí a ơi, để e rà soát lại đợt đó nha!'
-        ];
-      }
-      // 2.3 Badminton / Sport / Morning Game
-      else if (/(cầu lông|đánh cầu|tung cầu|sân cầu|vợt|chơi thể thao)/i.test(fullContext) || (/(sáng mai|6-8 sáng|dậy sớm)/i.test(fullContext) && /(cầu|sân|trận)/i.test(fullContext))) {
+      // 2.1 Badminton / Sport / Morning Game
+      if (/(cầu lông|đánh cầu|tung cầu|sân cầu|vợt|chơi thể thao)/i.test(fullContext) || (/(sáng mai|6-8 sáng|dậy sớm)/i.test(fullContext) && /(cầu|sân|trận)/i.test(fullContext))) {
         detectedIntent = 'Hẹn kèo sáng mai (Cầu lông/Gặp mặt)';
         suggestions = [
           'Ok chốt vậy sáng mai 6h gặp nha e, nhớ dậy đúng giờ kkk!',
@@ -280,7 +355,7 @@ export class GeminiService {
           'Oke mai gặp nhé bro, chuẩn bị tinh thần mai dứt luôn!'
         ];
       }
-      // 2.4 Night Cafe / Gathering ("cafe", "chỗ cũ", "quán cafe", "tối nay")
+      // 2.2 Night Cafe / Gathering ("cafe", "chỗ cũ", "quán cafe", "tối nay")
       else if (/(cafe|cà phê|trà đá|chỗ cũ|quán cũ|tối nay)/i.test(fullContext) && !/(lẩu|nhậu)/i.test(fullContext)) {
         detectedIntent = 'Hẹn kèo Cafe / Tối nay';
         suggestions = [
@@ -289,7 +364,7 @@ export class GeminiService {
           'Oke tí tôi có mặt, nhớ giữ chỗ đẹp nha kkk!'
         ];
       }
-      // 2.5 Eating / Hotpot / Beer / Food ("lẩu", "nhậu", "đi ăn quán", "quán lẩu")
+      // 2.3 Eating / Hotpot / Beer / Food ("lẩu", "nhậu", "đi ăn quán", "quán lẩu")
       else if (/(đi ăn|lẩu|nhậu|quán ăn|bữa lẩu|lẩu bò)/i.test(fullContext)) {
         detectedIntent = 'Hẹn kèo ăn uống / Lẩu';
         suggestions = [
@@ -298,7 +373,7 @@ export class GeminiService {
           'Oke dứt luôn, để rủ thêm mấy anh em nữa cho xôm!'
         ];
       }
-      // 2.6 Sending Files / Documents / Help
+      // 2.4 Sending Files / Documents / Help
       else if (/(file|tài liệu|drive|link|gửi lại|check giúp|xin lại)/i.test(fullContext)) {
         detectedIntent = 'Hỗ trợ gửi File / Tài liệu';
         suggestions = [
@@ -307,7 +382,7 @@ export class GeminiService {
           'Có lưu nè, để tôi share quyền truy cập Drive qua cho ông luôn!'
         ];
       }
-      // 2.7 Roll call / Team attendance / List of members / Review ("vắng", "có cả", "xem lại xíu", "danh sách", "chuẩn rồi đấy để tôi xem lại")
+      // 2.5 Roll call / Team attendance / List of members / Review ("vắng", "có cả", "xem lại xíu", "danh sách", "chuẩn rồi đấy để tôi xem lại")
       else if (/(vắng|có cả|danh sách|xem lại xíu|xem lại|check lại|thiếu ai)/i.test(fullContext) || /(chuẩn rồi đấy|để tôi xem lại)/i.test(msg)) {
         detectedIntent = 'Check danh sách / Chờ xem lại';
         suggestions = [
@@ -316,7 +391,7 @@ export class GeminiService {
           'Haha oke bro, xem xong ới tôi sớm nha!'
         ];
       }
-      // 2.8 Agreement / Confirmation ("oke", "oke sếp", "dứt luôn", "chốt", "chuẩn")
+      // 2.6 Agreement / Confirmation ("oke", "oke sếp", "dứt luôn", "chốt", "chuẩn")
       else if (msg.includes('oke') || msg.includes('sếp') || msg.includes('dứt') || msg.includes('chốt') || msg.includes('chuẩn')) {
         detectedIntent = 'Xác nhận đồng ý';
         suggestions = [
@@ -325,7 +400,7 @@ export class GeminiService {
           'Ok men, hẹn gặp lại sớm nha kkk!'
         ];
       }
-      // 2.9 Greetings / Calling ("ê", "alo", "đâu", "hú", "hi")
+      // 2.6 Greetings / Calling ("ê", "alo", "đâu", "hú", "hi")
       else if (msg.includes('ê') || msg.includes('alo') || msg.includes('đâu') || msg.includes('hú')) {
         detectedIntent = 'Bạn bè gọi nhau';
         suggestions = [
@@ -334,13 +409,13 @@ export class GeminiService {
           'Nghe rõ trả lời! Đang bận xíu mà có việc gì gấp không kkk?'
         ];
       }
-      // 2.10 General Friendly Conversation
+      // 2.7 General Friendly Conversation
       else {
-        detectedIntent = 'Trò chuyện ngữ cảnh';
+        detectedIntent = 'Trò chuyện bạn bè';
         suggestions = [
-          'Ok luôn nha bro ơi, để tôi check lại nhé!',
-          'Haha chuẩn rồi đấy, để tôi xem lại xíu rồi nhắn lại nha!',
-          'Ok chốt thế nhé, có gì ới tiếp nha!'
+          'Ok luôn nha bro ơi!',
+          'Haha chuẩn bài rồi đấy, để tôi xem lại xíu nha!',
+          'Ok chốt thế nhé, có gì ới tiếp kkk!'
         ];
       }
     }

@@ -1,11 +1,13 @@
 import { Persona, KnowledgeItem, AppSettings } from '../types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  aiProvider: 'gemini_web2api',
+  aiProvider: 'groq',
   geminiApiKey: '',
   geminiModel: 'gemini-3.7-flash',
   web2ApiBaseUrl: 'http://localhost:8081/v1',
   web2ApiKey: '',
+  groqApiKey: '',
+  groqModel: 'openai/gpt-oss-120b',
   globalAutoReply: true,
   autoReplyMinDelay: 3,
   autoReplyMaxDelay: 6,

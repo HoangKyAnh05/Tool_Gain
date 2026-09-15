@@ -34,6 +34,8 @@ const electronAPI = {
     ipcRenderer.invoke('gemini:test-key', apiKey, modelName),
   testWeb2Api: (baseUrl: string, apiKey: string, modelName?: string): Promise<{ success: boolean; message: string }> =>
     ipcRenderer.invoke('gemini:test-web2api', baseUrl, apiKey, modelName),
+  testGroq: (apiKey: string, modelName?: string): Promise<{ success: boolean; message: string }> =>
+    ipcRenderer.invoke('gemini:test-groq', apiKey, modelName),
   generateReply: (req: GenerateReplyRequest): Promise<GenerateReplyResponse> =>
     ipcRenderer.invoke('gemini:generate-reply', req),
 
