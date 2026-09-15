@@ -191,30 +191,40 @@ export class GeminiService {
     userPrompt: string,
     modelName: string
   ): Promise<GenerateReplyResponse> {
-    const apiKey = settings.groqApiKey || '';
+    const apiKey = (settings.groqApiKey || '').trim();
     if (!apiKey) {
       throw new Error('Chưa cấu hình Groq API Key trong Cài đặt');
     }
+
+    const effectiveModel = (modelName && (modelName.includes('llama') || modelName.includes('deepseek') || modelName.includes('qwen') || modelName.includes('gemma')))
+      ? modelName
+      : 'llama-3.3-70b-versatile';
+
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey.trim()}`
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: modelName || 'openai/gpt-oss-120b',
+        model: effectiveModel,
         messages: [
           { role: 'system', content: systemInstruction + '\nBẮT BUỘC: Trả về kết quả dưới định dạng JSON thuần: {"suggestions": ["câu 1", "câu 2", "câu 3"], "detectedIntent": "...", "recommendedAction": "copilot_review"}' },
           { role: 'user', content: userPrompt }
         ],
-        temperature: persona.temperature || 0.5,
+        temperature: persona.temperature || 0.6,
         response_format: { type: 'json_object' }
       })
     });
 
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Groq returned HTTP ${res.status}: ${errText.slice(0, 150)}`);
+      let errMsg = errText;
+      try {
+        const j = JSON.parse(errText);
+        errMsg = j.error?.message || errText;
+      } catch {}
+      throw new Error(`Groq (HTTP ${res.status}): ${errMsg}`);
     }
 
     const data: any = await res.json();
@@ -318,7 +328,7 @@ export class GeminiService {
     persona: Persona,
     matchedKnowledge: ReturnType<typeof contextEngine.findRelevantKnowledge>
   ): GenerateReplyResponse {
-    // Combine current message + full 10-message conversation history
+    // Combine current message + full conversation history
     const allHistoryText = (req.recentMessages || []).map(m => m.text).join(' ').toLowerCase();
     const msg = (req.currentMessage || '').toLowerCase();
     const fullContext = (allHistoryText + ' ' + msg).toLowerCase();
@@ -326,8 +336,59 @@ export class GeminiService {
     let suggestions: string[] = [];
     let detectedIntent = 'Trao đổi chung';
 
+    const isTrongTino =
+      persona.id === 'persona_tino_trong' ||
+      persona.name.toLowerCase().includes('trọng') ||
+      (req.contactName && req.contactName.toLowerCase().includes('trọng'));
+
+    // Special Persona: Trọng Tino (Thầy Trò & Anh Em Bỗ Bã)
+    if (isTrongTino) {
+      if (/(dmm|dm|vcl|vl|cc|cặc|chó|con cờ hó|đmm|đm|ngứa|cút)/i.test(msg)) {
+        detectedIntent = 'Trọng Tino cà khịa / Chửi đùa';
+        suggestions = [
+          'Cc, sủa j sủa nhanh đê tao đang bận kkk',
+          'Điên à, chửi thầy là bị trừ điểm đấy con cờ hó :)))',
+          'Ăn nói xà lơ, vừa thắng kèo xong ngứa mồm à kkk'
+        ];
+      } else if (/(lô thầy|thầy ơi|thầy|alo|ê thầy|sư phụ|anh ơi)/i.test(msg)) {
+        detectedIntent = 'Trọng gọi thầy';
+        suggestions = [
+          'Lô mày, có j ko sủa lẹ đê kkk',
+          'Thầy nghe đây con cờ hó, lại lùa đc con gà nào à :)))',
+          'Gì đấy, đang cbi họp với học viên mới đây này'
+        ];
+      } else if (/(check|xem|xem đê|check đê|xem có j ko|xem có gì|coi giúp|soát)/i.test(msg)) {
+        detectedIntent = 'Trọng nhờ check bài / kiểm tra';
+        suggestions = [
+          'Ok để đấy tí tao check, đang dở tay xíu',
+          'Check đê check đê, làm xong ok hết chưa đấy mày :)))',
+          'Ok để tí thầy xem, liệu hồn có lỗi gì ko nhá kkk'
+        ];
+      } else if (/(lùa gà|học viên|hc viên|con gà|kèo|thắng kèo)/i.test(msg) || /(lùa gà|kèo)/i.test(fullContext)) {
+        detectedIntent = 'Cà khịa lùa gà / Học viên mới';
+        suggestions = [
+          'Vua lùa gà cái gì, học viên này hơi bị thích thầy đấy kkk',
+          'Kinh, nay lại lùa đc thêm mấy con gà rồi đấy con cờ hó :)))',
+          'Chuẩn bài, cứ thế mà triển tiếp đê em kkk'
+        ];
+      } else if (/(bánh đa|đi ăn|ăn uống|toàn đi chơi|điên|tắt máy)/i.test(msg)) {
+        detectedIntent = 'Cà khịa đi chơi / Ăn uống';
+        suggestions = [
+          'Toàn đi chơi với ăn bánh đa thôi, điên à kkk',
+          'Tắt máy đi ngủ đi, mai dậy sớm cày tiếp con cờ hó :)))',
+          'Đang đi ăn bánh đa đây, về họp sau nhé kkk'
+        ];
+      } else {
+        detectedIntent = 'Trò chuyện với Trọng Tino';
+        suggestions = [
+          'Cc điên, sủa j sủa nhanh đê kkk',
+          'Ok để đấy tí thầy xử lý cho nhé :)))',
+          'Ngon r, làm xong tắt máy đi ngủ đê con cờ hó kkk'
+        ];
+      }
+    }
     // 1. Knowledge Base Matched (e.g. Price, Shipping, Warranty, Policy)
-    if (matchedKnowledge.length > 0) {
+    else if (matchedKnowledge.length > 0) {
       const kb = matchedKnowledge[0];
       detectedIntent = `Tư vấn ${kb.title}`;
       if (persona.category === 'customer') {
@@ -400,7 +461,7 @@ export class GeminiService {
           'Ok men, hẹn gặp lại sớm nha kkk!'
         ];
       }
-      // 2.6 Greetings / Calling ("ê", "alo", "đâu", "hú", "hi")
+      // 2.7 Greetings / Calling ("ê", "alo", "đâu", "hú", "hi")
       else if (msg.includes('ê') || msg.includes('alo') || msg.includes('đâu') || msg.includes('hú')) {
         detectedIntent = 'Bạn bè gọi nhau';
         suggestions = [

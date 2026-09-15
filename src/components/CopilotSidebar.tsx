@@ -302,6 +302,16 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* API Warning Notice if any */}
+        {currentSuggestion?.replyResponse?.error && (
+          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 flex items-start gap-2">
+            <span className="text-amber-400 font-bold shrink-0">⚠️</span>
+            <div className="leading-tight">
+              <span>{currentSuggestion.replyResponse.error}</span>
+            </div>
+          </div>
+        )}
+
         {/* Selected Message & Knowledge Badge */}
         <div className="flex items-start justify-between gap-2">
           <div
