@@ -71,50 +71,87 @@ const SCRAPER_JS = `
 
     function isInsideSidebar(el) {
       if (!el) return false;
-      return Boolean(el.closest('div[role="navigation"], nav, [aria-label*="Đoạn chat"], [aria-label*="Chats"], [data-testid="mwthreadlist"]'));
+      if (el.closest('div[role="navigation"], nav, [aria-label*="Đoạn chat"], [aria-label*="Chats"], [data-testid="mwthreadlist"], [data-testid="MWThreadList"], #conversationList, .chat-list, .chatlist')) {
+        return true;
+      }
+      const mainChat = el.closest('div[role="main"], #chatView, .chat-info, .bubbles-inner, .messages-container, .MessageList');
+      if (!mainChat) {
+        const r = el.getBoundingClientRect();
+        if (r.left < 380) return true;
+      }
+      return false;
     }
 
     // 1. Messenger Web Extraction
     if (platform === 'messenger') {
       const curPath = window.location.pathname;
       const navSidebar = document.querySelector('div[role="navigation"], nav, [aria-label*="Đoạn chat"], [aria-label*="Chats"], [data-testid="mwthreadlist"]');
-      let minChatX = 320;
+      let minChatX = 340;
       if (navSidebar) {
         const nr = navSidebar.getBoundingClientRect();
         if (nr.width > 80) minChatX = nr.right;
       } else {
-        minChatX = Math.max(300, winWidth * 0.3);
+        minChatX = Math.max(320, winWidth * 0.28);
       }
 
-      // Priority 1: Middle Chat Header (Status Proximity & Parent Walk)
-      const statusNodes = Array.from(document.querySelectorAll('span, div, p')).filter(el => {
-        if (isInsideSidebar(el)) return false;
-        const t = (el.textContent || '').trim();
-        const r = el.getBoundingClientRect();
-        return r.top >= 0 && r.top <= 90 && r.left >= minChatX - 30 &&
-               /^(hoạt động|đang hoạt động|active|vừa mới|trực tuyến|\\d+\\s*(thành viên|members)|active\\s+\\d+)/i.test(t);
-      });
+      // Priority 1: Inside div[role="main"] Header (100% Guaranteed Active Chat)
+      const mainContainer = document.querySelector('div[role="main"]');
+      if (mainContainer) {
+        const headerEl = mainContainer.querySelector('header, [role="banner"], div[role="region"] header') || mainContainer;
+        const nameNodes = Array.from(headerEl.querySelectorAll('h1, h2, h3, a[role="link"] span, span[dir="auto"], span')).filter(el => {
+          const r = el.getBoundingClientRect();
+          return r.top >= 0 && r.top <= 90 && r.height >= 12;
+        });
 
-      for (const stNode of statusNodes) {
-        let curr = stNode.parentElement;
-        for (let depth = 0; depth < 5 && curr; depth++) {
-          const candidates = Array.from(curr.querySelectorAll('span[dir="auto"], h1, h2, h3, a span, span'));
-          for (const cand of candidates) {
-            const t = cand.textContent?.trim() || '';
-            const lt = t.toLowerCase();
-            if (t.length >= 2 && t.length <= 45 &&
-                !/^(hoạt động|active|đang hoạt động|messenger|bắt đầu|cuộc gọi|video|thông tin|aa)/i.test(lt)) {
+        for (const node of nameNodes) {
+          const t = (node.textContent || '').trim();
+          const lt = t.toLowerCase();
+          if (t.length >= 2 && t.length <= 45 &&
+              !/^(hoạt động|active|đang hoạt động|messenger|bắt đầu|cuộc gọi|video|thông tin|aa|tìm kiếm|nhập|chi tiết|tùy chỉnh)/i.test(lt) &&
+              !['bạn', 'gửi', 'bạn:', 'bạn đã gửi', 'đoạn chat', 'tin nhắn', 'tìm kiếm'].includes(lt) &&
+              !/^\\d{1,2}:\\d{2}/.test(t) &&
+              !/\\d+\\s*(giờ|phút|ngày|tuần|giây|m|h|d|s|min)/.test(t) &&
+              !/^đã bày tỏ cảm xúc/i.test(t)) {
+            if (!node.querySelector('h1, h2, h3, span[dir="auto"]')) {
               contactName = t.replace(/\\.\\.\\.$/, '').trim();
               break;
             }
           }
-          if (contactName) break;
-          curr = curr.parentElement;
         }
-        if (contactName) break;
       }
 
-      // Priority 2: Geometric middle header text scan
+      // Priority 2: Middle Chat Header (Status Proximity strictly outside sidebar)
+      if (!contactName) {
+        const statusNodes = Array.from(document.querySelectorAll('span, div, p')).filter(el => {
+          if (isInsideSidebar(el)) return false;
+          const t = (el.textContent || '').trim();
+          const r = el.getBoundingClientRect();
+          return r.top >= 0 && r.top <= 90 && r.left >= minChatX &&
+                 /^(hoạt động|đang hoạt động|active|vừa mới|trực tuyến|\\d+\\s*(thành viên|members)|active\\s+\\d+)/i.test(t);
+        });
+
+        for (const stNode of statusNodes) {
+          let curr = stNode.parentElement;
+          for (let depth = 0; depth < 5 && curr; depth++) {
+            if (isInsideSidebar(curr)) break;
+            const candidates = Array.from(curr.querySelectorAll('span[dir="auto"], h1, h2, h3, a span, span'));
+            for (const cand of candidates) {
+              const t = cand.textContent?.trim() || '';
+              const lt = t.toLowerCase();
+              if (t.length >= 2 && t.length <= 45 &&
+                  !/^(hoạt động|active|đang hoạt động|messenger|bắt đầu|cuộc gọi|video|thông tin|aa)/i.test(lt)) {
+                contactName = t.replace(/\\.\\.\\.$/, '').trim();
+                break;
+              }
+            }
+            if (contactName) break;
+            curr = curr.parentElement;
+          }
+          if (contactName) break;
+        }
+      }
+
+      // Priority 3: Geometric middle header text scan
       if (!contactName) {
         const allHeaderTexts = Array.from(document.querySelectorAll('span, a, h1, h2, h3')).filter(el => {
           if (isInsideSidebar(el)) return false;
@@ -136,7 +173,7 @@ const SCRAPER_JS = `
         }
       }
 
-      // Priority 3: Right Details Panel Profile
+      // Priority 4: Right Details Panel Profile
       if (!contactName) {
         const detailsPanel = document.querySelector('div[role="complementary"], [aria-label*="Thông tin về đoạn chat"], [aria-label*="Chat details"], [aria-label*="Chi tiết"]');
         if (detailsPanel) {

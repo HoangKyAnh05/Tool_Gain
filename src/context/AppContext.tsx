@@ -386,23 +386,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const cat = matchedContact?.category || defaultPersona?.category || 'customer';
 
     // Update current selected message and clear previous suggestions until user clicks "Tạo lại"
-    setCurrentSuggestion(prev => ({
-      platform,
-      contactName,
-      contactCategory: prev?.contactName === contactName ? prev.contactCategory : cat,
-      incomingMessage: messageText,
-      replyResponse: {
-        success: true,
-        contactCategory: cat,
-        persona: defaultPersona,
-        suggestedReplies: [],
-        detectedIntent: 'Đã chọn tin nhắn • Bấm "Tạo lại" để sinh phản hồi',
-        matchedKnowledge: [],
-        recommendedAction: 'copilot_review'
-      },
-      isAutoReplyScheduled: false,
-      scheduledDelay: 0
-    }));
+    setCurrentSuggestion(prev => {
+      const isSameContact = Boolean(prev?.contactName && normalizeName(prev.contactName) === normalizeName(contactName));
+      const activeCat = (isSameContact && prev) ? prev.contactCategory : cat;
+      const activePersona = (isSameContact && prev?.replyResponse?.persona) ? prev.replyResponse.persona : defaultPersona;
+
+      return {
+        platform,
+        contactName,
+        contactCategory: activeCat,
+        incomingMessage: messageText,
+        replyResponse: {
+          success: true,
+          contactCategory: activeCat,
+          persona: activePersona,
+          suggestedReplies: [],
+          detectedIntent: 'Đã chọn tin nhắn • Bấm "Tạo lại" để sinh phản hồi',
+          matchedKnowledge: [],
+          recommendedAction: 'copilot_review'
+        },
+        isAutoReplyScheduled: false,
+        scheduledDelay: 0
+      };
+    });
   };
 
   const setContactCategory = async (
