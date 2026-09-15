@@ -329,7 +329,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const defaultPersona = personas.find(p => p.id === personaId) || personas[0];
     const cat = matchedContact?.category || defaultPersona?.category || 'customer';
 
-    // Immediately update active contact and display in Copilot
+    // Immediately update active contact and display in Copilot without auto-generating
     setCurrentSuggestion(prev => ({
       platform,
       contactName,
@@ -340,53 +340,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         contactCategory: cat,
         persona: defaultPersona,
         suggestedReplies: prev?.replyResponse?.suggestedReplies || [],
-        detectedIntent: 'Đang kết nối...',
+        detectedIntent: 'Sẵn sàng tạo gợi ý',
         matchedKnowledge: [],
         recommendedAction: 'copilot_review'
       },
       isAutoReplyScheduled: false,
       scheduledDelay: 0
     }));
-
-    const key = `${platform}::${(contactName || '').trim().toLowerCase()}::${(lastMsgText || '').trim().toLowerCase()}`;
-
-    // If currently generating or already processed for this exact same message, skip!
-    if (isGeneratingRef.current) {
-      return;
-    }
-
-    if (lastProcessedKeyRef.current === key && currentSuggestion?.replyResponse?.suggestedReplies?.length) {
-      return;
-    }
-
-    lastProcessedKeyRef.current = key;
-    isGeneratingRef.current = true;
-
-    try {
-      const resp = await window.electronAPI.generateReply({
-        platform,
-        contactName,
-        recentMessages,
-        currentMessage: lastMsgText || 'Xin chào',
-        personaId
-      });
-
-      setCurrentSuggestion({
-        platform,
-        contactName,
-        contactCategory: resp.contactCategory || cat,
-        incomingMessage: lastMsgText || '',
-        replyResponse: resp,
-        isAutoReplyScheduled: false,
-        scheduledDelay: 0
-      });
-    } catch (e) {
-      console.error('[handleActiveChatScanned Error]:', e);
-    } finally {
-      setTimeout(() => {
-        isGeneratingRef.current = false;
-      }, 300);
-    }
   };
 
   const handleMessageSelected = async (
@@ -395,7 +355,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     messageText: string,
     recentMessages: Array<{ sender: string; text: string }> = []
   ) => {
-    if (!window.electronAPI || !contactName || !messageText) return;
+    if (!contactName || !messageText) return;
 
     console.log(`[handleMessageSelected] User clicked message: "${messageText}" for "${contactName}"`);
     if (recentMessages.length > 0) {
@@ -409,34 +369,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const defaultPersona = personas.find(p => p.id === personaId) || personas[0];
     const cat = matchedContact?.category || defaultPersona?.category || 'customer';
 
-    setCurrentSuggestion(prev => prev ? {
-      ...prev,
+    // Update current selected message and clear previous suggestions until user clicks "Tạo lại"
+    setCurrentSuggestion(prev => ({
       platform,
       contactName,
-      incomingMessage: messageText
-    } : {
-      platform,
-      contactName,
-      contactCategory: cat,
+      contactCategory: prev?.contactName === contactName ? prev.contactCategory : cat,
       incomingMessage: messageText,
       replyResponse: {
         success: true,
         contactCategory: cat,
         persona: defaultPersona,
         suggestedReplies: [],
-        detectedIntent: 'Đang tạo gợi ý...',
+        detectedIntent: 'Đã chọn tin nhắn • Bấm "Tạo lại" để sinh phản hồi',
         matchedKnowledge: [],
         recommendedAction: 'copilot_review'
       },
       isAutoReplyScheduled: false,
       scheduledDelay: 0
-    });
-
-    try {
-      await regenerateReply(platform, contactName, messageText, personaId);
-    } catch (e) {
-      console.error('[handleMessageSelected Error]:', e);
-    }
+    }));
   };
 
   const setContactCategory = async (

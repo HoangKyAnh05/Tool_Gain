@@ -35,6 +35,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     currentSuggestion,
     personas,
     contacts,
+    settings,
     updateContact,
     savePersona,
     activeTimers,
@@ -87,25 +88,20 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     personas.find(p => p.category === contactCategory) ||
     personas[0];
 
+  const aiModelDisplayName =
+    settings?.aiProvider === 'groq'
+      ? `Groq (${settings?.groqModel?.includes('120b') ? 'GPT-120B' : 'Fast'})`
+      : settings?.aiProvider === 'gemini_web2api'
+      ? `Gemini (${settings?.geminiModel || '3.7 Flash'})`
+      : `Google AI (${settings?.geminiModel || '2.0 Flash'})`;
+
   const hasAISuggestions = Boolean(
     isContactMatching &&
     currentSuggestion?.replyResponse?.suggestedReplies &&
     currentSuggestion.replyResponse.suggestedReplies.length > 0
   );
 
-  const suggestions = hasAISuggestions
-    ? currentSuggestion!.replyResponse.suggestedReplies
-    : [
-        contactCategory === 'friend'
-          ? 'Alo nghe nè bro ơi, sao thế?'
-          : 'Dạ em chào anh/chị, em có thể hỗ trợ gì cho mình hôm nay ạ?',
-        contactCategory === 'friend'
-          ? 'Chuẩn luôn nha ông ơi, để lát tôi check rồi nhắn lại liền kkk!'
-          : 'Dạ thông tin sản phẩm và chính sách bên em luôn sẵn sàng hỗ trợ anh/chị nhé!',
-        contactCategory === 'friend'
-          ? 'Ok chốt thế nhé bro!'
-          : 'Dạ vâng ạ, anh/chị đợi em một chút em kiểm tra và báo ngay nhé ạ!'
-      ];
+  const suggestions = hasAISuggestions ? currentSuggestion!.replyResponse.suggestedReplies : [];
 
   const matchedKnowledge = (isContactMatching && currentSuggestion?.replyResponse?.matchedKnowledge) || [];
   const detectedIntent = (isContactMatching && currentSuggestion?.replyResponse?.detectedIntent) || (contactCategory === 'friend' ? 'Bạn bè trò chuyện' : 'Yêu cầu tư vấn');
@@ -317,20 +313,47 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-1.5 text-xs font-bold text-white uppercase tracking-wider">
             <Sparkles className="w-3.5 h-3.5 text-brand-400" />
-            <span>Gợi ý phản hồi từ AI (3.7 Flash)</span>
+            <span>Gợi ý phản hồi từ {aiModelDisplayName}</span>
           </div>
 
           <button
             onClick={handleRegenerate}
-            disabled={isRegenerating}
-            className="flex items-center gap-1 text-[11px] text-brand-400 hover:text-brand-300 disabled:opacity-50 transition-colors cursor-pointer"
+            disabled={isRegenerating || !incomingMsgDisplay}
+            className="flex items-center gap-1 text-[11px] text-brand-400 hover:text-brand-300 disabled:opacity-50 transition-colors cursor-pointer font-semibold"
           >
             <RefreshCw className={`w-3 h-3 ${isRegenerating ? 'animate-spin' : ''}`} />
-            <span>Tạo lại</span>
+            <span>{isRegenerating ? 'Đang tạo...' : 'Tạo lại'}</span>
           </button>
         </div>
 
-        {/* Suggestions List */}
+        {/* Suggestions List or Call-to-Action */}
+        {suggestions.length === 0 ? (
+          <div className="p-4 rounded-xl border border-dashed border-surface-750 bg-surface-950/40 text-center space-y-3">
+            <div className="w-9 h-9 mx-auto rounded-full bg-brand-600/20 text-brand-400 flex items-center justify-center border border-brand-500/30">
+              <Sparkles className={`w-4 h-4 ${isRegenerating ? 'animate-spin' : ''}`} />
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-slate-200">
+                {incomingMsgDisplay ? 'Đã chọn tin nhắn' : 'Chưa chọn tin nhắn'}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {incomingMsgDisplay
+                  ? 'Bấm nút bên dưới để AI phân tích và đưa ra 3 phương án trả lời'
+                  : 'Nhấp vào bất kỳ tin nhắn nào trong khung chat'}
+              </p>
+            </div>
+            {incomingMsgDisplay && (
+              <button
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+                <span>{isRegenerating ? 'Đang phân tích & tạo câu trả lời...' : '✨ Bấm để AI tạo gợi ý ngay'}</span>
+              </button>
+            )}
+          </div>
+        ) : (
         <div className="space-y-3">
           {suggestions.map((text, idx) => {
             const isFirst = idx === 0;
@@ -425,6 +448,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             );
           })}
         </div>
+        )}
 
         {/* Custom Prompt Booster Input */}
         <div className="p-3 rounded-xl bg-surface-950/60 border border-surface-800 space-y-2">
