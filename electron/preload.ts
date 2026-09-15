@@ -48,6 +48,8 @@ const electronAPI = {
     ipcRenderer.invoke('autoreply:send-approved', { platform, contactName, text, insertOnly: true }),
   simulateIncomingMessage: (platform: TargetPlatform, contactName: string, text: string): Promise<GenerateReplyResponse> =>
     ipcRenderer.invoke('simulator:incoming-message', { platform, contactName, text }),
+  handleIncomingMessage: (platform: TargetPlatform, contactName: string, text: string, recentMessages?: Array<{ sender: string; text: string }>): Promise<GenerateReplyResponse> =>
+    ipcRenderer.invoke('autoreply:handle-incoming', { platform, contactName, messageText: text, recentMessages }),
 
   // System Lifecycle & Shell
   restartApp: (): Promise<void> => ipcRenderer.invoke('app:restart'),

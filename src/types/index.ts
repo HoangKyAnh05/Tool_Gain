@@ -140,6 +140,7 @@ declare global {
       approveAndSendReply: (platform: TargetPlatform, contactName: string, text: string, insertOnly?: boolean) => Promise<void>;
       fillChatInput: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
       simulateIncomingMessage: (platform: TargetPlatform, contactName: string, text: string) => Promise<GenerateReplyResponse>;
+      handleIncomingMessage: (platform: TargetPlatform, contactName: string, text: string, recentMessages?: Array<{ sender: string; text: string }>) => Promise<GenerateReplyResponse>;
       restartApp: () => Promise<void>;
       openExternal: (url: string) => Promise<boolean>;
       getWebviewPreloadUrl: () => Promise<string>;

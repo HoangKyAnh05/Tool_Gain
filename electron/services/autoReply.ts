@@ -55,14 +55,14 @@ export class AutoReplyManager {
 
     const chosenReply = replyResponse.suggestedReplies[0] || 'Dạ em đã nhận được tin nhắn ạ.';
 
-    // Check if auto-reply should be scheduled
+    // Check if auto-reply should be scheduled: allowed if globalAutoReply is ON and contact has not explicitly disabled it
     const isAutoReplyAllowed =
-      settings.globalAutoReply &&
-      contact.autoReplyEnabled &&
-      replyResponse.recommendedAction === 'auto_reply';
+      Boolean(settings.globalAutoReply) &&
+      (contact.autoReplyEnabled !== false);
 
     if (isAutoReplyAllowed) {
-      this.scheduleAutoReply(platform, contactName, messageText, chosenReply, replyResponse.persona.autoDelaySeconds || 4);
+      const delay = Math.max(2, replyResponse.persona?.autoDelaySeconds || settings.autoReplyMinDelay || 4);
+      this.scheduleAutoReply(platform, contactName, messageText, chosenReply, delay);
     }
 
     // Broadcast new suggestion event to UI

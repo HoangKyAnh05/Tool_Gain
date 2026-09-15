@@ -432,9 +432,9 @@ function fillChatInput(text: string): boolean {
     inputEl.dispatchEvent(new Event('input', { bubbles: true }));
     inputEl.dispatchEvent(new Event('change', { bubbles: true }));
   } else {
-    inputEl.innerHTML = '';
+    document.execCommand('selectAll', false, undefined);
+    document.execCommand('delete', false, undefined);
     document.execCommand('insertText', false, text);
-    inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
   }
 
   return true;
@@ -464,9 +464,9 @@ function sendChatMessage(text: string): boolean {
 }
 
 // State tracking
-// State tracking
 let lastActiveContact = '';
 let scanDebounceTimer: any = null;
+const lastSeenIncomingMessageByContact: Record<string, string> = {};
 
 // Core Scanner
 function scanActiveConversation(force = false) {
@@ -474,12 +474,18 @@ function scanActiveConversation(force = false) {
   if (!contactName) return;
 
   const contactChanged = contactName !== lastActiveContact;
+  const recentMessages = getRecentMessages(12);
+  const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
 
   if (force || contactChanged) {
     lastActiveContact = contactName;
-    const recentMessages = getRecentMessages(12);
 
     console.log(`[Webview Scanned] Active Chat: "${contactName}" | Messages: ${recentMessages.length}`);
+
+    // If initial scan on this contact, record current last message so we don't trigger on old history
+    if (lastMsg && lastMsg.sender === 'contact' && lastSeenIncomingMessageByContact[contactName] === undefined) {
+      lastSeenIncomingMessageByContact[contactName] = lastMsg.text;
+    }
 
     ipcRenderer.sendToHost('webview:active-chat-scanned', {
       platform: currentPlatform,
@@ -488,6 +494,25 @@ function scanActiveConversation(force = false) {
       recentMessages,
       timestamp: Date.now()
     });
+  }
+
+  // Check for newly arrived incoming messages from the other person
+  if (lastMsg && lastMsg.sender === 'contact' && lastMsg.text) {
+    const prevSeen = lastSeenIncomingMessageByContact[contactName];
+    if (prevSeen !== undefined && prevSeen !== lastMsg.text) {
+      lastSeenIncomingMessageByContact[contactName] = lastMsg.text;
+      console.log(`[New Incoming Message from "${contactName}"]: "${lastMsg.text}"`);
+      ipcRenderer.sendToHost('webview:incoming-message', {
+        platform: currentPlatform,
+        contactName,
+        messageText: lastMsg.text,
+        recentMessages,
+        isNewIncoming: true,
+        timestamp: Date.now()
+      });
+    } else if (prevSeen === undefined) {
+      lastSeenIncomingMessageByContact[contactName] = lastMsg.text;
+    }
   }
 }
 

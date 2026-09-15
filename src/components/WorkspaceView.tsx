@@ -391,7 +391,7 @@ const SCRAPER_JS = `
 `;
 
 export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
-  const { handleActiveChatScanned, handleMessageSelected } = useApp();
+  const { handleActiveChatScanned, handleMessageSelected, settings } = useApp();
   const webviewRef = useRef<any>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [canGoBack, setCanGoBack] = useState<boolean>(false);
@@ -496,7 +496,21 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
             data.recentMessages || []
           );
         }
-      } else if (channel === 'webview:active-chat-scanned' || channel === 'webview:incoming-message') {
+      } else if (channel === 'webview:incoming-message') {
+        if (data && data.contactName && data.messageText) {
+          if (settings?.globalAutoReply && data.isNewIncoming) {
+            console.log('[Auto-Reply Triggered for New Incoming Message]:', data);
+            if (window.electronAPI?.handleIncomingMessage) {
+              window.electronAPI.handleIncomingMessage(
+                platform,
+                data.contactName,
+                data.messageText,
+                data.recentMessages || []
+              );
+            }
+          }
+        }
+      } else if (channel === 'webview:active-chat-scanned') {
         if (data && data.contactName) {
           const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
 
@@ -570,7 +584,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
         webview.removeEventListener('console-message', handleConsoleMessage);
       } catch {}
     };
-  }, [platform, executeDirectScrape, handleActiveChatScanned, handleMessageSelected]);
+  }, [platform, settings, executeDirectScrape, handleActiveChatScanned, handleMessageSelected]);
 
   // Listen for text send dispatch from host
   useEffect(() => {
@@ -588,9 +602,14 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
                           document.querySelector('input[type="text"], textarea');
             if (input) {
               input.focus();
-              document.execCommand('selectAll', false, null);
-              document.execCommand('insertText', false, text);
-              input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+              if (input.tagName === 'INPUT' || input.tagName === 'TEXTAREA') {
+                input.value = text;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+              } else {
+                document.execCommand('selectAll', false, null);
+                document.execCommand('delete', false, null);
+                document.execCommand('insertText', false, text);
+              }
               
               if (!insertOnly) {
                 setTimeout(() => {

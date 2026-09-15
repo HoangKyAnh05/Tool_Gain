@@ -128,6 +128,14 @@ function setupIpcHandlers() {
     autoReplyManager.executeSend(platform, contactName, text, false, Boolean(insertOnly));
   });
 
+  ipcMain.handle('autoreply:handle-incoming', async (_event, { platform, contactName, messageText, recentMessages }: { platform: TargetPlatform; contactName: string; messageText: string; recentMessages?: Array<{ sender: string; text: string }> }) => {
+    return await autoReplyManager.handleIncomingMessage(platform, contactName, messageText, recentMessages || []);
+  });
+
+  ipcMain.handle('simulator:incoming-message', async (_event, { platform, contactName, text }: { platform: TargetPlatform; contactName: string; text: string }) => {
+    return await autoReplyManager.handleIncomingMessage(platform, contactName, text, []);
+  });
+
   // --- App Lifecycle & Preload URLs ---
   ipcMain.handle('app:get-webview-preload-url', () => {
     const preloadPath = path.join(__dirname, 'webview-preload.cjs');
