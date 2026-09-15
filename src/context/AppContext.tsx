@@ -10,6 +10,7 @@ import {
   GenerateReplyResponse,
   ContactCategory
 } from '../types';
+import { cleanContactName } from '../components/WorkspaceView';
 
 export type NavTab = 'zalo' | 'messenger' | 'telegram' | 'simulator' | 'personas' | 'knowledge' | 'contacts' | 'logs' | 'settings' | 'setup';
 
@@ -252,12 +253,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const regenerateReply = async (
     platform: TargetPlatform,
-    contactName: string,
+    rawContactName: string,
     message: string,
     personaId?: string
   ): Promise<GenerateReplyResponse> => {
     if (!window.electronAPI) throw new Error('No electron API');
     
+    const contactName = cleanContactName(rawContactName) || rawContactName;
     isGeneratingRef.current = true;
     const key = `${platform}::${(contactName || '').trim().toLowerCase()}::${(message || '').trim().toLowerCase()}`;
     lastProcessedKeyRef.current = key;
@@ -288,10 +290,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const sendSimulatorContactMessage = async (
-    contactName: string,
+    rawContactName: string,
     text: string,
     category: ContactCategory
   ) => {
+    const contactName = cleanContactName(rawContactName) || rawContactName;
     // 1. Append contact message to simulator UI
     setSimulatorMessages(prev => [
       ...prev,
@@ -313,10 +316,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const handleActiveChatScanned = async (
     platform: TargetPlatform,
-    contactName: string,
+    rawContactName: string,
     recentMessages: Array<{ sender: string; text: string }>,
     incomingMessage?: string
   ) => {
+    const contactName = cleanContactName(rawContactName);
     if (!window.electronAPI || !contactName) return;
 
     lastRecentMessagesRef.current = recentMessages;
@@ -391,10 +395,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const handleMessageSelected = async (
     platform: TargetPlatform,
-    contactName: string,
+    rawContactName: string,
     messageText: string,
     recentMessages: Array<{ sender: string; text: string }> = []
   ) => {
+    const contactName = cleanContactName(rawContactName);
     if (!window.electronAPI || !contactName || !messageText) return;
 
     console.log(`[handleMessageSelected] User clicked message: "${messageText}" for "${contactName}"`);
@@ -441,10 +446,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const setContactCategory = async (
     platform: TargetPlatform,
-    contactName: string,
+    rawContactName: string,
     category: ContactCategory,
     personaId?: string
   ) => {
+    const contactName = cleanContactName(rawContactName);
     if (!window.electronAPI || !contactName) return;
     const targetPersona = personaId ? personas.find(p => p.id === personaId) : (personas.find(p => p.category === category && p.isDefault) || personas[0]);
 

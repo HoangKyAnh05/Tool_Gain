@@ -21,6 +21,40 @@ const PLATFORM_NAMES = {
 };
 
 // JavaScript function injected into webview to extract active contact and recent messages
+// Helper: Clean contact name from system wrappers and prefixes
+export function cleanContactName(raw?: string): string {
+  if (!raw) return '';
+  let name = raw.trim();
+  // Remove notification counts like (1), (99+), etc.
+  name = name.replace(/^\(\d+\+?\)\s*/, '');
+  // Remove Facebook / Messenger document title suffix
+  name = name.replace(/\s*[|\-–—]\s*(Messenger|Facebook|Meta).*$/i, '');
+  // Strip conversational prefixes in Vietnamese & English
+  name = name.replace(/^(cuộc trò chuyện (với|của)|đoạn chat (với|của)|trò chuyện (với|của)|nhắn tin (với|của)|chat with|chats with|conversation with)\s+/i, '');
+  // Strip trailing ellipses and punctuation
+  name = name.replace(/[\.…]+$/, '').trim();
+  name = name.replace(/\s+/g, ' ');
+  return name;
+}
+
+export function isValidContactName(name?: string): boolean {
+  if (!name || name.length < 2 || name.length > 50) return false;
+  const lower = name.toLowerCase();
+  const blacklist = [
+    'messenger', 'facebook', 'bạn', 'gửi', 'cuộc gọi', 'video', 'gọi thoại', 'gọi video',
+    'bắt đầu cuộc gọi thoại', 'bắt đầu gọi video', 'thông tin', 'thông tin về đoạn chat',
+    'tùy chỉnh đoạn chat', 'chi tiết', 'tìm kiếm', 'tìm kiếm trên messenger',
+    'aa', 'trực tuyến', 'hoạt động', 'đang hoạt động', 'active now', 'active',
+    'vừa xong', 'just now', 'thành viên', 'members', 'tin nhắn', 'đoạn chat',
+    'file phương tiện', 'quyền riêng tư', 'trang cá nhân', 'xem trang cá nhân'
+  ];
+  if (blacklist.includes(lower)) return false;
+  if (/^(hoạt động|đang hoạt động|active|trực tuyến)/i.test(lower)) return false;
+  if (/^\d{1,2}:\d{2}/.test(lower)) return false;
+  return true;
+}
+
+// JavaScript function injected into webview to extract active contact and recent messages
 const SCRAPER_JS = `
 (() => {
   try {
@@ -47,6 +81,34 @@ const SCRAPER_JS = `
       if (/^đã bày tỏ cảm xúc/i.test(s)) return true;
       if (/^(đã chỉnh sửa|edited)$/i.test(s)) return true;
       return false;
+    }
+
+    function cleanContactName(raw) {
+      if (!raw) return '';
+      let name = raw.trim();
+      name = name.replace(/^\\(\\d+\\+?\\)\\s*/, '');
+      name = name.replace(/\\s*[|\\-–—]\\s*(Messenger|Facebook|Meta).*$/i, '');
+      name = name.replace(/^(cuộc trò chuyện (với|của)|đoạn chat (với|của)|trò chuyện (với|của)|nhắn tin (với|của)|chat with|chats with|conversation with)\\s+/i, '');
+      name = name.replace(/[\\.…]+$/, '').trim();
+      name = name.replace(/\\s+/g, ' ');
+      return name;
+    }
+
+    function isValidContactName(name) {
+      if (!name || name.length < 2 || name.length > 50) return false;
+      const lower = name.toLowerCase();
+      const blacklist = [
+        'messenger', 'facebook', 'bạn', 'gửi', 'cuộc gọi', 'video', 'gọi thoại', 'gọi video',
+        'bắt đầu cuộc gọi thoại', 'bắt đầu gọi video', 'thông tin', 'thông tin về đoạn chat',
+        'tùy chỉnh đoạn chat', 'chi tiết', 'tìm kiếm', 'tìm kiếm trên messenger',
+        'aa', 'trực tuyến', 'hoạt động', 'đang hoạt động', 'active now', 'active',
+        'vừa xong', 'just now', 'thành viên', 'members', 'tin nhắn', 'đoạn chat',
+        'file phương tiện', 'quyền riêng tư', 'trang cá nhân', 'xem trang cá nhân'
+      ];
+      if (blacklist.includes(lower)) return false;
+      if (/^(hoạt động|đang hoạt động|active|trực tuyến)/i.test(lower)) return false;
+      if (/^\\d{1,2}:\\d{2}/.test(lower)) return false;
+      return true;
     }
 
     function cleanText(raw) {
@@ -77,6 +139,13 @@ const SCRAPER_JS = `
     // 1. Messenger Web Extraction
     if (platform === 'messenger') {
       const curPath = window.location.pathname;
+      
+      // Clear stale contact if chat URL path changed
+      if (window.__ai_last_chat_path !== curPath) {
+        window.__ai_last_chat_path = curPath;
+        window.__ai_last_contact = '';
+      }
+
       const navSidebar = document.querySelector('div[role="navigation"], nav, [aria-label*="Đoạn chat"], [aria-label*="Chats"], [data-testid="mwthreadlist"]');
       let minChatX = 320;
       if (navSidebar) {
@@ -86,100 +155,110 @@ const SCRAPER_JS = `
         minChatX = Math.max(300, winWidth * 0.3);
       }
 
-      // Priority 1: Middle Chat Header (Status Proximity & Parent Walk)
-      const statusNodes = Array.from(document.querySelectorAll('span, div, p')).filter(el => {
-        if (isInsideSidebar(el)) return false;
-        const t = (el.textContent || '').trim();
-        const r = el.getBoundingClientRect();
-        return r.top >= 0 && r.top <= 90 && r.left >= minChatX - 30 &&
-               /^(hoạt động|đang hoạt động|active|vừa mới|trực tuyến|\\d+\\s*(thành viên|members)|active\\s+\\d+)/i.test(t);
-      });
+      // Priority 1: Direct Main Header Check
+      const mainHeaders = Array.from(document.querySelectorAll('div[role="main"] header, [role="main"] div[role="banner"], div[role="main"] [data-testid="conversation_header"], header'));
+      for (const hdr of mainHeaders) {
+        if (isInsideSidebar(hdr)) continue;
+        const hr = hdr.getBoundingClientRect();
+        if (hr.top > 100 || hr.left < minChatX - 50) continue;
 
-      for (const stNode of statusNodes) {
-        let curr = stNode.parentElement;
-        for (let depth = 0; depth < 5 && curr; depth++) {
-          const candidates = Array.from(curr.querySelectorAll('span[dir="auto"], h1, h2, h3, a span, span'));
-          for (const cand of candidates) {
-            const t = cand.textContent?.trim() || '';
-            const lt = t.toLowerCase();
-            if (t.length >= 2 && t.length <= 45 &&
-                !/^(hoạt động|active|đang hoạt động|messenger|bắt đầu|cuộc gọi|video|thông tin|aa)/i.test(lt)) {
-              contactName = t.replace(/\\.\\.\\.$/, '').trim();
-              break;
-            }
+        const candidates = Array.from(hdr.querySelectorAll('h1, h2, h3, a[role="link"] span, span[dir="auto"], [dir="auto"]'));
+        for (const cand of candidates) {
+          const cleaned = cleanContactName(cand.textContent || '');
+          if (isValidContactName(cleaned)) {
+            contactName = cleaned;
+            break;
           }
-          if (contactName) break;
-          curr = curr.parentElement;
         }
         if (contactName) break;
       }
 
-      // Priority 2: Geometric middle header text scan
+      // Priority 2: Middle Header Status Proximity (deep parent walk)
+      if (!contactName) {
+        const statusNodes = Array.from(document.querySelectorAll('span, div, p')).filter(el => {
+          if (isInsideSidebar(el)) return false;
+          const t = (el.textContent || '').trim();
+          const r = el.getBoundingClientRect();
+          return r.top >= 0 && r.top <= 90 && r.left >= minChatX - 40 &&
+                 /^(hoạt động|đang hoạt động|active|vừa mới|trực tuyến|\\d+\\s*(thành viên|members)|active\\s+\\d+)/i.test(t);
+        });
+
+        for (const stNode of statusNodes) {
+          let curr = stNode.parentElement;
+          for (let depth = 0; depth < 5 && curr; depth++) {
+            const candidates = Array.from(curr.querySelectorAll('span[dir="auto"], h1, h2, h3, a span, span'));
+            for (const cand of candidates) {
+              const cleaned = cleanContactName(cand.textContent || '');
+              if (isValidContactName(cleaned)) {
+                contactName = cleaned;
+                break;
+              }
+            }
+            if (contactName) break;
+            curr = curr.parentElement;
+          }
+          if (contactName) break;
+        }
+      }
+
+      // Priority 3: Geometric middle header text scan
       if (!contactName) {
         const allHeaderTexts = Array.from(document.querySelectorAll('span, a, h1, h2, h3')).filter(el => {
           if (isInsideSidebar(el)) return false;
           const r = el.getBoundingClientRect();
-          return r.top >= 0 && r.top <= 80 && r.left >= minChatX && r.right <= winWidth - 70 && r.height >= 14;
+          return r.top >= 0 && r.top <= 85 && r.left >= minChatX && r.right <= winWidth - 70 && r.height >= 14;
         });
 
         for (const el of allHeaderTexts) {
-          const txt = el.textContent?.trim() || '';
-          const lt = txt.toLowerCase();
-          if (txt.length >= 2 && txt.length <= 45 &&
-              !/^(hoạt động|active|đang hoạt động|messenger|tin nhắn|đoạn chat|tìm kiếm|chi tiết|thông tin|aa)/i.test(lt) &&
-              !['bạn', 'gửi', 'cuộc gọi', 'video', 'gọi thoại', 'gọi video', 'bắt đầu cuộc gọi thoại', 'bắt đầu gọi video'].includes(lt)) {
-            if (!el.querySelector('span, a, h1, h2, h3')) {
-              contactName = txt.replace(/\\.\\.\\.$/, '').trim();
-              break;
-            }
-          }
-        }
-      }
-
-      // Priority 3: Right Details Panel Profile
-      if (!contactName) {
-        const detailsPanel = document.querySelector('div[role="complementary"], [aria-label*="Thông tin về đoạn chat"], [aria-label*="Chat details"], [aria-label*="Chi tiết"]');
-        if (detailsPanel) {
-          const dHeadings = Array.from(detailsPanel.querySelectorAll('h1, h2, h3, a span, span[dir="auto"], span'));
-          for (const dh of dHeadings) {
-            const t = dh.textContent?.trim() || '';
-            const lt = t.toLowerCase();
-            if (t.length >= 2 && t.length <= 45 &&
-                !/^(hoạt động|active|thông tin|tùy chỉnh|file|quyền riêng tư|trang cá nhân|tắt thông báo|tìm kiếm|thành viên)/i.test(lt)) {
-              contactName = t;
-              break;
-            }
+          if (el.querySelector('span, a, h1, h2, h3')) continue;
+          const cleaned = cleanContactName(el.textContent || '');
+          if (isValidContactName(cleaned)) {
+            contactName = cleaned;
+            break;
           }
         }
       }
 
       // Priority 4: Left sidebar active thread (strictly matching URL path)
-      if (!contactName && curPath && curPath.length > 3 && curPath !== '/') {
-        const activeLink = document.querySelector('div[role="navigation"] a[href*="' + curPath + '"]');
+      if (!contactName) {
+        const activeLink = document.querySelector('div[role="navigation"] [role="row"][aria-selected="true"], div[role="navigation"] a[aria-current="page"]' + (curPath && curPath.length > 3 && curPath !== '/' ? (', div[role="navigation"] a[href*="' + curPath + '"]') : ''));
         if (activeLink) {
-          const spans = Array.from(activeLink.querySelectorAll('span[dir="auto"], span'));
-          for (const sp of spans) {
-            const t = sp.textContent?.trim() || '';
-            const lt = t.toLowerCase();
-            if (t && t.length >= 2 && t.length <= 45 &&
-                !['bạn', 'gửi', 'bạn:', 'bạn đã gửi', 'đoạn chat', 'tin nhắn', 'tìm kiếm'].includes(lt) &&
-                !/^\\d{1,2}:\\d{2}/.test(t) &&
-                !/\\d+\\s*(giờ|phút|ngày|tuần|giây|m|h|d|s|min)/.test(t) &&
-                !/^đã bày tỏ cảm xúc/i.test(t) &&
-                !/^(đã gửi|đã nhận|đã xem|seen|delivered|sent)/i.test(t)) {
-              contactName = t;
+          const ariaLabel = activeLink.getAttribute('aria-label') || '';
+          const cleanedAria = cleanContactName(ariaLabel);
+          if (isValidContactName(cleanedAria)) {
+            contactName = cleanedAria;
+          } else {
+            const spans = Array.from(activeLink.querySelectorAll('span[dir="auto"], span'));
+            for (const sp of spans) {
+              const cleaned = cleanContactName(sp.textContent || '');
+              if (isValidContactName(cleaned)) {
+                contactName = cleaned;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Priority 5: Right Details Panel Profile
+      if (!contactName) {
+        const detailsPanel = document.querySelector('div[role="complementary"], [aria-label*="Thông tin về đoạn chat"], [aria-label*="Chat details"], [aria-label*="Chi tiết"]');
+        if (detailsPanel) {
+          const dHeadings = Array.from(detailsPanel.querySelectorAll('h1, h2, h3, a span, span[dir="auto"], span'));
+          for (const dh of dHeadings) {
+            const cleaned = cleanContactName(dh.textContent || '');
+            if (isValidContactName(cleaned)) {
+              contactName = cleaned;
               break;
             }
           }
         }
       }
 
-      // Priority 5: document.title
+      // Priority 6: document.title
       if (!contactName && title) {
-        let cleanedTitle = title.replace(/^\\(\\d+\\+?\\)\\s*/, '').trim();
-        cleanedTitle = cleanedTitle.replace(/\\s*[|\\-–—]\\s*(Messenger|Facebook|Meta).*$/i, '').trim();
-        const lowerT = cleanedTitle.toLowerCase();
-        if (cleanedTitle && cleanedTitle.length >= 2 && !['messenger', 'facebook', 'tin nhắn', 'chats', 'inbox', 'đoạn chat'].includes(lowerT) && !lowerT.startsWith('hoạt động') && !lowerT.startsWith('active')) {
+        const cleanedTitle = cleanContactName(title);
+        if (isValidContactName(cleanedTitle)) {
           contactName = cleanedTitle;
         }
       }
@@ -263,7 +342,8 @@ const SCRAPER_JS = `
     else if (platform === 'zalo') {
       const headerTitle = document.querySelector('#chatView .header-title .title, .chat-header-title .truncate, div[data-id="header_name"], .conv-item.active .conv-item-title__name, .header-title');
       if (headerTitle && headerTitle.textContent) {
-        contactName = headerTitle.textContent.trim();
+        const cleaned = cleanContactName(headerTitle.textContent);
+        if (isValidContactName(cleaned)) contactName = cleaned;
       }
       const items = Array.from(document.querySelectorAll('.chat-item, .msg-item, .chat-message-item, [data-id="div_MsgItem"]'));
       items.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
@@ -285,7 +365,8 @@ const SCRAPER_JS = `
     else if (platform === 'telegram') {
       const headerTitle = document.querySelector('.chat-info .peer-title, .top .person .name, .sidebar-header .user-title, .chat-info .title, .ChatInfo .title');
       if (headerTitle && headerTitle.textContent) {
-        contactName = headerTitle.textContent.trim();
+        const cleaned = cleanContactName(headerTitle.textContent);
+        if (isValidContactName(cleaned)) contactName = cleaned;
       }
       const items = Array.from(document.querySelectorAll('.bubble, .message, .history-message, .Message'));
       items.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
@@ -329,9 +410,9 @@ const SCRAPER_JS = `
           }
         }
 
-        const currentContact = contactName || window.__ai_last_contact || '';
+        const currentContact = cleanContactName(contactName || window.__ai_last_contact || '');
 
-        if (t && t.length > 0 && currentContact) {
+        if (t && t.length > 0 && currentContact && isValidContactName(currentContact)) {
           console.log('__AI_MSG_CLICKED__:' + JSON.stringify({
             platform: platform,
             contactName: currentContact,
@@ -344,7 +425,7 @@ const SCRAPER_JS = `
     return {
       success: true,
       platform,
-      contactName: contactName || window.__ai_last_contact || '',
+      contactName: cleanContactName(contactName || window.__ai_last_contact || ''),
       recentMessages,
       lastMessage: lastMsg ? lastMsg.text : ''
     };
