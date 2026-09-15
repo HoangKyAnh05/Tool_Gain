@@ -47,6 +47,7 @@ interface AppContextType {
   deleteKnowledgeItem: (id: string) => Promise<void>;
   refreshAll: () => Promise<void>;
   approveAndSendReply: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
+  fillChatInput: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
   cancelAutoReply: (key: string) => Promise<void>;
   regenerateReply: (platform: TargetPlatform, contactName: string, message: string, personaId?: string) => Promise<GenerateReplyResponse>;
   sendSimulatorContactMessage: (contactName: string, text: string, category: ContactCategory) => Promise<void>;
@@ -228,6 +229,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!window.electronAPI) return;
     await window.electronAPI.approveAndSendReply(platform, contactName, text);
     // Cancel any active timer for this
+    const key = `${platform}_${contactName}`;
+    setActiveTimers(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const fillChatInput = async (platform: TargetPlatform, contactName: string, text: string) => {
+    if (!window.electronAPI) return;
+    await window.electronAPI.fillChatInput(platform, contactName, text);
     const key = `${platform}_${contactName}`;
     setActiveTimers(prev => {
       const next = { ...prev };
@@ -444,6 +456,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteKnowledgeItem,
         refreshAll,
         approveAndSendReply,
+        fillChatInput,
         cancelAutoReply,
         regenerateReply,
         sendSimulatorContactMessage,

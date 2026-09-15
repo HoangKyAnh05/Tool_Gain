@@ -566,6 +566,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
         const sendCode = `
           (() => {
             const text = ${JSON.stringify(data.text)};
+            const insertOnly = ${Boolean(data.insertOnly)};
             const input = document.querySelector('div[role="textbox"][contenteditable="true"]') ||
                           document.querySelector('#input_chat') ||
                           document.querySelector('#editable-message-text') ||
@@ -573,18 +574,22 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
                           document.querySelector('input[type="text"], textarea');
             if (input) {
               input.focus();
+              document.execCommand('selectAll', false, null);
               document.execCommand('insertText', false, text);
               input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-              setTimeout(() => {
-                const sendBtn = document.querySelector('div[aria-label="Nhấn Enter để gửi"], div[aria-label="Gửi"], div[aria-label="Press Enter to send"], div[aria-label="Send"], .btn-send, .chat-input-send-btn, [data-id="btn_send"]');
-                if (sendBtn) {
-                  sendBtn.click();
-                } else {
-                  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                  input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                  input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-                }
-              }, 150);
+              
+              if (!insertOnly) {
+                setTimeout(() => {
+                  const sendBtn = document.querySelector('div[aria-label="Nhấn Enter để gửi"], div[aria-label="Gửi"], div[aria-label="Press Enter to send"], div[aria-label="Send"], .btn-send, .chat-input-send-btn, [data-id="btn_send"]');
+                  if (sendBtn) {
+                    sendBtn.click();
+                  } else {
+                    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                    input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                  }
+                }, 150);
+              }
             }
           })()
         `;

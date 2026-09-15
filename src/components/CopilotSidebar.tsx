@@ -14,7 +14,8 @@ import {
   Zap,
   Check,
   ChevronDown,
-  MessageSquare
+  MessageSquare,
+  CornerDownLeft
 } from 'lucide-react';
 import { ContactCategory, TargetPlatform } from '../types';
 
@@ -41,11 +42,13 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     activeTimers,
     cancelAutoReply,
     approveAndSendReply,
+    fillChatInput,
     regenerateReply,
     setContactCategory
   } = useApp();
 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [filledIndex, setFilledIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState<string>('');
   const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
@@ -62,21 +65,21 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     normalizeName(currentSuggestion.contactName).includes(normalizeName(activeContactName));
 
   const contactName = activeContactName || currentSuggestion?.contactName || '';
-  const hasActiveChat = Boolean(contactName && contactName.trim().length > 0);
-  const displayName = hasActiveChat ? contactName : 'Chưa chọn đoạn chat';
-  const matchedContact = hasActiveChat ? contacts.find(c => normalizeName(c.name) === normalizeName(contactName)) : null;
+  const matchedContact = contacts.find(c => normalizeName(c.name) === normalizeName(contactName));
+
+  const contactCategory =
+    selectedCategory ||
+    matchedContact?.category ||
+    (isContactMatching && currentSuggestion?.contactCategory) ||
+    'customer';
+
+  const hasActiveChat = Boolean(contactName && contactName.trim().length > 0 && contactName !== 'Đang chờ chọn tin nhắn');
+  const displayName = hasActiveChat ? contactName : 'Chưa chọn cuộc trò chuyện';
 
   // Reset local override only when switching to a completely different contact
   useEffect(() => {
     setSelectedCategory(null);
   }, [contactName]);
-
-  // Determine current active category
-  const contactCategory: ContactCategory =
-    selectedCategory ||
-    matchedContact?.category ||
-    currentSuggestion?.contactCategory ||
-    (contactName.toLowerCase().includes('bạn') || contactName.toLowerCase().includes('kỳ') || contactName.toLowerCase().includes('hoàng') || contactName.toLowerCase().includes('long') || contactName.toLowerCase().includes('tuấn') ? 'friend' : 'customer');
 
   const timerKey = `${platform}_${contactName}`;
   const remainingSeconds = activeTimers[timerKey] ?? 0;
@@ -111,6 +114,12 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  const handleFillInput = async (text: string, index: number) => {
+    await fillChatInput(platform, contactName, text);
+    setFilledIndex(index);
+    setTimeout(() => setFilledIndex(null), 1500);
   };
 
   const handleSend = async (text: string) => {
@@ -432,12 +441,31 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                   </p>
                 )}
 
-                {/* Send Button */}
+                {/* Action Buttons: Nhập vào ô chat & Gửi ngay */}
                 {!isEditing && (
-                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-surface-800/60">
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-surface-800/60">
+                    <button
+                      onClick={() => handleFillInput(text, idx)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-800 hover:bg-surface-750 text-slate-300 hover:text-white border border-surface-700 transition-all cursor-pointer"
+                      title="Chỉ điền câu này vào ô nhập tin nhắn mà chưa gửi vội"
+                    >
+                      {filledIndex === idx ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-300 font-semibold">Đã nhập</span>
+                        </>
+                      ) : (
+                        <>
+                          <CornerDownLeft className="w-3.5 h-3.5 text-brand-400" />
+                          <span>Nhập vào ô chat</span>
+                        </>
+                      )}
+                    </button>
+
                     <button
                       onClick={() => handleSend(text)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-sm shadow-brand-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-sm shadow-brand-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                      title="Gửi câu trả lời này ngay lập tức"
                     >
                       <Send className="w-3 h-3" />
                       <span>Gửi ngay</span>

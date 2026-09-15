@@ -137,7 +137,8 @@ declare global {
       testGroq: (apiKey: string, modelName?: string) => Promise<{ success: boolean; message: string }>;
       generateReply: (req: GenerateReplyRequest) => Promise<GenerateReplyResponse>;
       cancelAutoReply: (key: string) => Promise<boolean>;
-      approveAndSendReply: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
+      approveAndSendReply: (platform: TargetPlatform, contactName: string, text: string, insertOnly?: boolean) => Promise<void>;
+      fillChatInput: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
       simulateIncomingMessage: (platform: TargetPlatform, contactName: string, text: string) => Promise<GenerateReplyResponse>;
       restartApp: () => Promise<void>;
       openExternal: (url: string) => Promise<boolean>;
@@ -145,7 +146,7 @@ declare global {
       onNewSuggestion: (callback: (data: SuggestionEventData) => void) => () => void;
       onAutoReplyTick: (callback: (data: AutoReplyTickData) => void) => () => void;
       onAutoReplyCancelled: (callback: (data: { key: string }) => void) => () => void;
-      onDispatchSendToWebview: (callback: (data: { platform: TargetPlatform; contactName: string; text: string; isAuto: boolean }) => void) => () => void;
+      onDispatchSendToWebview: (callback: (data: { platform: TargetPlatform; contactName: string; text: string; isAuto: boolean; insertOnly?: boolean }) => void) => () => void;
     };
   }
 }

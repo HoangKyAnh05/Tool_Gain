@@ -124,8 +124,8 @@ function setupIpcHandlers() {
     return autoReplyManager.cancelPending(key);
   });
 
-  ipcMain.handle('autoreply:send-approved', (_event, { platform, contactName, text }: { platform: TargetPlatform; contactName: string; text: string }) => {
-    autoReplyManager.executeSend(platform, contactName, text, false);
+  ipcMain.handle('autoreply:send-approved', (_event, { platform, contactName, text, insertOnly }: { platform: TargetPlatform; contactName: string; text: string; insertOnly?: boolean }) => {
+    autoReplyManager.executeSend(platform, contactName, text, false, Boolean(insertOnly));
   });
 
   // --- App Lifecycle & Preload URLs ---

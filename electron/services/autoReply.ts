@@ -149,28 +149,30 @@ export class AutoReplyManager {
   }
 
   /**
-   * Execute send message via Webview or Simulator
+   * Execute send or fill message into Webview or Simulator
    */
-  public executeSend(platform: TargetPlatform, contactName: string, textToSend: string, isAuto: boolean = false) {
+  public executeSend(platform: TargetPlatform, contactName: string, textToSend: string, isAuto: boolean = false, insertOnly: boolean = false) {
     const contact = db.getOrCreateContact(platform, contactName);
 
-    // Save log
-    db.addChatLog({
-      platform,
-      contactName,
-      contactId: contact.id,
-      messageText: textToSend,
-      sender: 'assistant',
-      chosenReply: textToSend,
-      actionStatus: isAuto ? 'auto_sent' : 'approved_sent',
-      personaUsedId: contact.personaId
-    });
+    if (!insertOnly) {
+      // Save log only when actually sending
+      db.addChatLog({
+        platform,
+        contactName,
+        contactId: contact.id,
+        messageText: textToSend,
+        sender: 'assistant',
+        chosenReply: textToSend,
+        actionStatus: isAuto ? 'auto_sent' : 'approved_sent',
+        personaUsedId: contact.personaId
+      });
 
-    // Update contact last message
-    db.updateContact(contact.id, {
-      lastMessage: textToSend,
-      lastMessageTime: new Date().toISOString()
-    });
+      // Update contact last message
+      db.updateContact(contact.id, {
+        lastMessage: textToSend,
+        lastMessageTime: new Date().toISOString()
+      });
+    }
 
     // Send IPC command to main window to dispatch to target webview
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
@@ -178,7 +180,8 @@ export class AutoReplyManager {
         platform,
         contactName,
         text: textToSend,
-        isAuto
+        isAuto,
+        insertOnly
       });
     }
   }

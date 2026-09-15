@@ -42,8 +42,10 @@ const electronAPI = {
   // Auto-Reply and Messaging Controls
   cancelAutoReply: (key: string): Promise<boolean> =>
     ipcRenderer.invoke('autoreply:cancel', key),
-  approveAndSendReply: (platform: TargetPlatform, contactName: string, text: string): Promise<void> =>
-    ipcRenderer.invoke('autoreply:send-approved', { platform, contactName, text }),
+  approveAndSendReply: (platform: TargetPlatform, contactName: string, text: string, insertOnly: boolean = false): Promise<void> =>
+    ipcRenderer.invoke('autoreply:send-approved', { platform, contactName, text, insertOnly }),
+  fillChatInput: (platform: TargetPlatform, contactName: string, text: string): Promise<void> =>
+    ipcRenderer.invoke('autoreply:send-approved', { platform, contactName, text, insertOnly: true }),
   simulateIncomingMessage: (platform: TargetPlatform, contactName: string, text: string): Promise<GenerateReplyResponse> =>
     ipcRenderer.invoke('simulator:incoming-message', { platform, contactName, text }),
 
