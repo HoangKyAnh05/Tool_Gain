@@ -52,9 +52,21 @@ export class DatabaseManager {
         if (loadedSettings.geminiModel === 'gemini-2.0-flash' || !loadedSettings.geminiModel) {
           loadedSettings.geminiModel = 'gemini-3.7-flash';
         }
+        const loadedPersonas = [...DEFAULT_PERSONAS];
+        if (parsed.personas && Array.isArray(parsed.personas)) {
+          for (const p of parsed.personas) {
+            const idx = loadedPersonas.findIndex(item => item.id === p.id);
+            if (idx >= 0) {
+              loadedPersonas[idx] = p;
+            } else {
+              loadedPersonas.push(p);
+            }
+          }
+        }
+
         return {
           settings: loadedSettings,
-          personas: parsed.personas && parsed.personas.length > 0 ? parsed.personas : DEFAULT_PERSONAS,
+          personas: loadedPersonas,
           contacts: parsed.contacts || [],
           knowledgeItems: parsed.knowledgeItems && parsed.knowledgeItems.length > 0 ? parsed.knowledgeItems : DEFAULT_KNOWLEDGE_ITEMS,
           chatLogs: parsed.chatLogs || []
@@ -150,14 +162,21 @@ export class DatabaseManager {
 
     // Heuristic categorization based on name keywords
     let defaultCategory: Contact['category'] = 'customer';
+    let assignedPersonaId: string | undefined = undefined;
     const lowerName = name.toLowerCase();
-    if (lowerName.includes('bạn') || lowerName.includes('em') || lowerName.includes('bro') || lowerName.includes('kỳ') || lowerName.includes('hoàng') || lowerName.includes('long') || lowerName.includes('anh')) {
+
+    if (lowerName.includes('trọng') || lowerName.includes('tino')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_tino_trong';
+    } else if (lowerName.includes('bạn') || lowerName.includes('em') || lowerName.includes('bro') || lowerName.includes('kỳ') || lowerName.includes('hoàng') || lowerName.includes('long') || lowerName.includes('anh') || lowerName.includes('tuấn') || lowerName.includes('quân')) {
       defaultCategory = 'friend';
     } else if (lowerName.includes('nv') || lowerName.includes('team') || lowerName.includes('nhân viên') || lowerName.includes('dev') || lowerName.includes('kế toán')) {
       defaultCategory = 'employee';
     }
 
-    const defaultPersona = this.getPersonaByCategory(defaultCategory);
+    const defaultPersona = assignedPersonaId
+      ? this.data.personas.find(p => p.id === assignedPersonaId) || this.getPersonaByCategory(defaultCategory)
+      : this.getPersonaByCategory(defaultCategory);
 
     const newContact: Contact = {
       id: `contact_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,

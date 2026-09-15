@@ -247,13 +247,30 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             </div>
           </div>
 
-          {/* Active Persona Badge */}
-          {currentPersona && (
-            <div className="flex items-center justify-between pt-2 border-t border-surface-700/40 text-[10px]">
-              <span className="text-slate-400">Persona áp dụng:</span>
-              <span className="font-medium text-brand-300 truncate max-w-[180px]">{currentPersona.name}</span>
+          {/* Active Persona Package Dropdown */}
+          <div className="flex items-center justify-between pt-2 border-t border-surface-700/40 text-[10px]">
+            <span className="text-slate-400 shrink-0">Gói tính cách (Persona):</span>
+            <div className="relative max-w-[190px]">
+              <select
+                value={currentPersona?.id || 'persona_friend'}
+                onChange={async (e) => {
+                  const targetPersonaId = e.target.value;
+                  const selected = personas.find(p => p.id === targetPersonaId);
+                  if (selected) {
+                    await setContactCategory(platform, contactName, selected.category, selected.id);
+                  }
+                }}
+                className="w-full text-[10.5px] font-semibold bg-surface-950 text-brand-300 px-2 py-1 rounded-lg border border-surface-700 appearance-none pr-5 cursor-pointer outline-none hover:border-brand-500/50 truncate"
+              >
+                {personas.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-surface-900 text-slate-200">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3 h-3 absolute right-1.5 top-2 pointer-events-none text-slate-400" />
             </div>
-          )}
+          </div>
         </div>
       </div>
 
