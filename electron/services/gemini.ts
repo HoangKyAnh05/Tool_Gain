@@ -253,8 +253,26 @@ export class GeminiService {
     }
     // 2. Friend Persona (Category === 'friend')
     else if (persona.category === 'friend') {
-      // 2.1 Badminton / Sport / Morning Game
-      if (/(cầu lông|đánh cầu|tung cầu|sân cầu|vợt|chơi thể thao)/i.test(fullContext) || (/(sáng mai|6-8 sáng|dậy sớm)/i.test(fullContext) && /(cầu|sân|trận)/i.test(fullContext))) {
+      // 2.1 Gym / Training / Course / Deposit / Attendance / Schedule / Accounting
+      if (/(gym|tập|buổi|khóa|cọc|nghỉ|phép|điểm danh|tính buổi|tiền|1tr|700|học phí)/i.test(fullContext)) {
+        detectedIntent = 'Tính số buổi / Học phí / Điểm danh khóa';
+        suggestions = [
+          'Dạ chuẩn rồi a, để e đối chiếu lại số buổi rồi tính trừ tiền cọc đợt này cho a nhé!',
+          'Ok a ơi, tính các buổi có phép và không phép thì chuẩn như a tính rồi ạ, để e chốt lại luôn nhé!',
+          'Đúng rồi a, để e tổng kết lại lịch và gửi lại a xác nhận nha!'
+        ];
+      }
+      // 2.2 Date / Schedule / Calendar ("đầu tuần", "tuần này", "tuần trước", ngày tháng)
+      else if (/(đầu tuần|tuần này|tuần trước|hôm|ngày|tháng|\d{1,2}\/\d{1,2})/i.test(fullContext)) {
+        detectedIntent = 'Xác nhận mốc thời gian / Lịch trình';
+        suggestions = [
+          'Chuẩn mốc thời gian đó rồi a/bro, để e check lại lịch xem nhé!',
+          'Ok đúng lịch rồi, để e xem lại chi tiết rồi nhắn lại a liền nha!',
+          'Nhất trí a ơi, để e rà soát lại đợt đó nha!'
+        ];
+      }
+      // 2.3 Badminton / Sport / Morning Game
+      else if (/(cầu lông|đánh cầu|tung cầu|sân cầu|vợt|chơi thể thao)/i.test(fullContext) || (/(sáng mai|6-8 sáng|dậy sớm)/i.test(fullContext) && /(cầu|sân|trận)/i.test(fullContext))) {
         detectedIntent = 'Hẹn kèo sáng mai (Cầu lông/Gặp mặt)';
         suggestions = [
           'Ok chốt vậy sáng mai 6h gặp nha e, nhớ dậy đúng giờ kkk!',
@@ -262,7 +280,7 @@ export class GeminiService {
           'Oke mai gặp nhé bro, chuẩn bị tinh thần mai dứt luôn!'
         ];
       }
-      // 2.2 Night Cafe / Gathering ("cafe", "chỗ cũ", "quán cafe", "tối nay")
+      // 2.4 Night Cafe / Gathering ("cafe", "chỗ cũ", "quán cafe", "tối nay")
       else if (/(cafe|cà phê|trà đá|chỗ cũ|quán cũ|tối nay)/i.test(fullContext) && !/(lẩu|nhậu)/i.test(fullContext)) {
         detectedIntent = 'Hẹn kèo Cafe / Tối nay';
         suggestions = [
@@ -271,7 +289,7 @@ export class GeminiService {
           'Oke tí tôi có mặt, nhớ giữ chỗ đẹp nha kkk!'
         ];
       }
-      // 2.3 Eating / Hotpot / Beer / Food ("lẩu", "nhậu", "đi ăn quán", "quán lẩu")
+      // 2.5 Eating / Hotpot / Beer / Food ("lẩu", "nhậu", "đi ăn quán", "quán lẩu")
       else if (/(đi ăn|lẩu|nhậu|quán ăn|bữa lẩu|lẩu bò)/i.test(fullContext)) {
         detectedIntent = 'Hẹn kèo ăn uống / Lẩu';
         suggestions = [
@@ -280,7 +298,7 @@ export class GeminiService {
           'Oke dứt luôn, để rủ thêm mấy anh em nữa cho xôm!'
         ];
       }
-      // 2.4 Sending Files / Documents / Help
+      // 2.6 Sending Files / Documents / Help
       else if (/(file|tài liệu|drive|link|gửi lại|check giúp|xin lại)/i.test(fullContext)) {
         detectedIntent = 'Hỗ trợ gửi File / Tài liệu';
         suggestions = [
@@ -289,7 +307,7 @@ export class GeminiService {
           'Có lưu nè, để tôi share quyền truy cập Drive qua cho ông luôn!'
         ];
       }
-      // 2.5 Roll call / Team attendance / List of members / Review ("vắng", "có cả", "xem lại xíu", "danh sách", "chuẩn rồi đấy để tôi xem lại")
+      // 2.7 Roll call / Team attendance / List of members / Review ("vắng", "có cả", "xem lại xíu", "danh sách", "chuẩn rồi đấy để tôi xem lại")
       else if (/(vắng|có cả|danh sách|xem lại xíu|xem lại|check lại|thiếu ai)/i.test(fullContext) || /(chuẩn rồi đấy|để tôi xem lại)/i.test(msg)) {
         detectedIntent = 'Check danh sách / Chờ xem lại';
         suggestions = [
@@ -298,7 +316,7 @@ export class GeminiService {
           'Haha oke bro, xem xong ới tôi sớm nha!'
         ];
       }
-      // 2.6 Agreement / Confirmation ("oke", "oke sếp", "dứt luôn", "chốt", "chuẩn")
+      // 2.8 Agreement / Confirmation ("oke", "oke sếp", "dứt luôn", "chốt", "chuẩn")
       else if (msg.includes('oke') || msg.includes('sếp') || msg.includes('dứt') || msg.includes('chốt') || msg.includes('chuẩn')) {
         detectedIntent = 'Xác nhận đồng ý';
         suggestions = [
@@ -307,7 +325,7 @@ export class GeminiService {
           'Ok men, hẹn gặp lại sớm nha kkk!'
         ];
       }
-      // 2.6 Greetings / Calling ("ê", "alo", "đâu", "hú", "hi")
+      // 2.9 Greetings / Calling ("ê", "alo", "đâu", "hú", "hi")
       else if (msg.includes('ê') || msg.includes('alo') || msg.includes('đâu') || msg.includes('hú')) {
         detectedIntent = 'Bạn bè gọi nhau';
         suggestions = [
@@ -316,13 +334,13 @@ export class GeminiService {
           'Nghe rõ trả lời! Đang bận xíu mà có việc gì gấp không kkk?'
         ];
       }
-      // 2.7 General Friendly Conversation
+      // 2.10 General Friendly Conversation
       else {
-        detectedIntent = 'Trò chuyện bạn bè';
+        detectedIntent = 'Trò chuyện ngữ cảnh';
         suggestions = [
-          'Ok luôn nha bro ơi!',
-          'Haha chuẩn bài rồi đấy, để tôi xem lại xíu nha!',
-          'Ok chốt thế nhé, có gì ới tiếp kkk!'
+          'Ok luôn nha bro ơi, để tôi check lại nhé!',
+          'Haha chuẩn rồi đấy, để tôi xem lại xíu rồi nhắn lại nha!',
+          'Ok chốt thế nhé, có gì ới tiếp nha!'
         ];
       }
     }
