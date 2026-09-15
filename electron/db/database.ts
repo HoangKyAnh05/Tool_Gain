@@ -57,10 +57,26 @@ export class DatabaseManager {
           for (const p of parsed.personas) {
             const idx = loadedPersonas.findIndex(item => item.id === p.id);
             if (idx >= 0) {
-              loadedPersonas[idx] = p;
+              // Merge with default persona systemPrompt and tone
+              const def = DEFAULT_PERSONAS.find(d => d.id === p.id);
+              loadedPersonas[idx] = {
+                ...p,
+                systemPrompt: def?.systemPrompt || p.systemPrompt,
+                tone: def?.tone || p.tone
+              };
             } else {
               loadedPersonas.push(p);
             }
+          }
+        }
+
+        const loadedKnowledge: KnowledgeItem[] = parsed.knowledgeItems && Array.isArray(parsed.knowledgeItems) ? [...parsed.knowledgeItems] : [...DEFAULT_KNOWLEDGE_ITEMS];
+        for (const defKb of DEFAULT_KNOWLEDGE_ITEMS) {
+          const idx = loadedKnowledge.findIndex(k => k.id === defKb.id);
+          if (idx < 0) {
+            loadedKnowledge.unshift(defKb);
+          } else {
+            loadedKnowledge[idx] = { ...defKb, ...loadedKnowledge[idx], content: defKb.content };
           }
         }
 
@@ -68,7 +84,7 @@ export class DatabaseManager {
           settings: loadedSettings,
           personas: loadedPersonas,
           contacts: parsed.contacts || [],
-          knowledgeItems: parsed.knowledgeItems && parsed.knowledgeItems.length > 0 ? parsed.knowledgeItems : DEFAULT_KNOWLEDGE_ITEMS,
+          knowledgeItems: loadedKnowledge,
           chatLogs: parsed.chatLogs || []
         };
       }
