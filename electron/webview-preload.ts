@@ -335,20 +335,27 @@ function getRecentMessages(limit = 12): Array<{ sender: string; text: string }> 
     const allNodes = Array.from(document.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
     const messageNodes = allNodes.filter(el => {
       const r = el.getBoundingClientRect();
-      const isMiddle = r.top >= 70 && r.bottom <= winHeight - 45 && r.left >= minChatX && r.height > 10;
+      const isMiddle = r.top >= 70 && r.bottom <= winHeight - 65 && r.left >= minChatX && r.height > 10;
       return isMiddle &&
              !el.closest('div[role="complementary"]') &&
              !el.closest('div[aria-label*="Thông tin"]') &&
              !el.closest('div[aria-label*="Details"]') &&
-             !el.closest('form');
+             !el.closest('footer') &&
+             !el.closest('form') &&
+             !el.closest('[role="textbox"]') &&
+             !el.closest('[aria-label*="Nhấn Enter"]') &&
+             !el.closest('[aria-label*="Press Enter"]') &&
+             !el.closest('[aria-label*="Gửi"]') &&
+             !el.closest('[aria-label*="Send"]');
     });
 
     messageNodes.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
 
     const blacklist = [
+      'nhấn enter để gửi', 'press enter to send', 'gửi', 'send',
       'đang hoạt động', 'active now', 'thông tin về đoạn chat', 'tùy chỉnh đoạn chat',
       'file phương tiện và file', 'file phương tiện', 'quyền riêng tư và hỗ trợ',
-      'quyền riêng tư', 'bạn', 'gửi', 'messenger', 'tìm kiếm trên messenger',
+      'quyền riêng tư', 'bạn', 'messenger', 'tìm kiếm trên messenger',
       'tìm kiếm', 'search', 'xem trang cá nhân', 'nhập', 'được mã hóa đầu cuối',
       'aa', 'bắt đầu cuộc gọi', 'bắt đầu gọi video'
     ];
@@ -525,7 +532,7 @@ function requestScan(delay = 200) {
 
 function extractTextFromClickTarget(target: HTMLElement | null): string {
   if (!target) return '';
-  if (target.closest('input, textarea, [contenteditable="true"], button, header, form, div[role="complementary"], [aria-label*="Thông tin"], [aria-label*="Details"]')) {
+  if (target.closest('input, textarea, [contenteditable="true"], button, header, footer, form, div[role="complementary"], [aria-label*="Thông tin"], [aria-label*="Details"], [aria-label*="Nhấn Enter"], [aria-label*="Press Enter"], [aria-label*="Gửi"], [aria-label*="Send"]')) {
     return '';
   }
 
@@ -539,6 +546,11 @@ function extractTextFromClickTarget(target: HTMLElement | null): string {
       const inner = parentRow.querySelector('div[dir="auto"], span[dir="auto"], .bubble-content, .text, .chat-message-text, .content-text')?.textContent || '';
       cleaned = cleanMessageText(inner);
     }
+  }
+
+  const lower = (cleaned || '').toLowerCase();
+  if (lower === 'nhấn enter để gửi' || lower === 'gửi' || lower === 'send' || lower === 'press enter to send' || lower === 'aa') {
+    return '';
   }
 
   return cleaned;

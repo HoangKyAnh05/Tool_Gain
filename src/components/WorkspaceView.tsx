@@ -108,7 +108,7 @@ const SCRAPER_JS = `
           const lt = t.toLowerCase();
           if (t.length >= 2 && t.length <= 45 &&
               !/^(hoạt động|active|đang hoạt động|messenger|bắt đầu|cuộc gọi|video|thông tin|aa|tìm kiếm|nhập|chi tiết|tùy chỉnh)/i.test(lt) &&
-              !['bạn', 'gửi', 'bạn:', 'bạn đã gửi', 'đoạn chat', 'tin nhắn', 'tìm kiếm'].includes(lt) &&
+              !['bạn', 'gửi', 'send', 'nhấn enter để gửi', 'press enter to send', 'bạn:', 'bạn đã gửi', 'đoạn chat', 'tin nhắn', 'tìm kiếm'].includes(lt) &&
               !/^\\d{1,2}:\\d{2}/.test(t) &&
               !/\\d+\\s*(giờ|phút|ngày|tuần|giây|m|h|d|s|min)/.test(t) &&
               !/^đã bày tỏ cảm xúc/i.test(t)) {
@@ -164,7 +164,7 @@ const SCRAPER_JS = `
           const lt = txt.toLowerCase();
           if (txt.length >= 2 && txt.length <= 45 &&
               !/^(hoạt động|active|đang hoạt động|messenger|tin nhắn|đoạn chat|tìm kiếm|chi tiết|thông tin|aa)/i.test(lt) &&
-              !['bạn', 'gửi', 'cuộc gọi', 'video', 'gọi thoại', 'gọi video', 'bắt đầu cuộc gọi thoại', 'bắt đầu gọi video'].includes(lt)) {
+              !['bạn', 'gửi', 'send', 'nhấn enter để gửi', 'press enter to send', 'cuộc gọi', 'video', 'gọi thoại', 'gọi video', 'bắt đầu cuộc gọi thoại', 'bắt đầu gọi video'].includes(lt)) {
             if (!el.querySelector('span, a, h1, h2, h3')) {
               contactName = txt.replace(/\\.\\.\\.$/, '').trim();
               break;
@@ -199,7 +199,7 @@ const SCRAPER_JS = `
             const t = sp.textContent?.trim() || '';
             const lt = t.toLowerCase();
             if (t && t.length >= 2 && t.length <= 45 &&
-                !['bạn', 'gửi', 'bạn:', 'bạn đã gửi', 'đoạn chat', 'tin nhắn', 'tìm kiếm'].includes(lt) &&
+                !['bạn', 'gửi', 'send', 'nhấn enter để gửi', 'press enter to send', 'bạn:', 'bạn đã gửi', 'đoạn chat', 'tin nhắn', 'tìm kiếm'].includes(lt) &&
                 !/^\\d{1,2}:\\d{2}/.test(t) &&
                 !/\\d+\\s*(giờ|phút|ngày|tuần|giây|m|h|d|s|min)/.test(t) &&
                 !/^đã bày tỏ cảm xúc/i.test(t) &&
@@ -228,17 +228,24 @@ const SCRAPER_JS = `
         contactName = window.__ai_contact_cache[curPath];
       }
 
-      // Messages extraction (middle of chat container, strictly right of sidebar)
+      // Messages extraction (middle of chat container, strictly right of sidebar and strictly above input bar)
       const allNodes = Array.from(document.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
       const textNodes = allNodes.filter(el => {
         if (isInsideSidebar(el)) return false;
         const r = el.getBoundingClientRect();
-        const isMiddle = r.top >= 70 && r.bottom <= winHeight - 45 && r.left >= minChatX && r.height > 10;
+        // Stricter bottom cutoff to completely exclude footer / input bar / send button tooltip
+        const isMiddle = r.top >= 70 && r.bottom <= winHeight - 65 && r.left >= minChatX && r.height > 10;
         return isMiddle &&
                !el.closest('div[role="complementary"]') &&
                !el.closest('div[aria-label*="Thông tin"]') &&
                !el.closest('div[aria-label*="Details"]') &&
-               !el.closest('form');
+               !el.closest('footer') &&
+               !el.closest('form') &&
+               !el.closest('[role="textbox"]') &&
+               !el.closest('[aria-label*="Nhấn Enter"]') &&
+               !el.closest('[aria-label*="Press Enter"]') &&
+               !el.closest('[aria-label*="Gửi"]') &&
+               !el.closest('[aria-label*="Send"]');
       });
 
       // Strictly sort nodes top-to-bottom for 100% deterministic message order
@@ -249,9 +256,10 @@ const SCRAPER_JS = `
       });
 
       const blacklist = [
+        'nhấn enter để gửi', 'press enter to send', 'gửi', 'send',
         'đang hoạt động', 'active now', 'thông tin về đoạn chat', 'tùy chỉnh đoạn chat',
         'file phương tiện và file', 'file phương tiện', 'quyền riêng tư và hỗ trợ',
-        'quyền riêng tư', 'bạn', 'gửi', 'messenger', 'tìm kiếm trên messenger',
+        'quyền riêng tư', 'bạn', 'messenger', 'tìm kiếm trên messenger',
         'tìm kiếm', 'search', 'xem trang cá nhân', 'nhập', 'được mã hóa đầu cuối',
         'aa', 'bắt đầu cuộc gọi', 'bắt đầu gọi video'
       ];
@@ -345,7 +353,8 @@ const SCRAPER_JS = `
     }
 
     recentMessages = recentMessages.slice(-12);
-    const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
+    const incomingOnly = recentMessages.filter(m => m.sender === 'contact');
+    const lastIncomingMessage = incomingOnly.length > 0 ? incomingOnly[incomingOnly.length - 1].text : '';
 
     // Attach click listener to chat messages
     if (!window.__ai_msg_click_listener_attached) {
@@ -353,7 +362,7 @@ const SCRAPER_JS = `
       document.addEventListener('click', (e) => {
         const target = e.target;
         if (!target) return;
-        if (target.closest('input, textarea, [contenteditable="true"], button, header, form, [role="navigation"], [aria-label*="Details"]')) {
+        if (target.closest('input, textarea, [contenteditable="true"], button, header, footer, form, [role="navigation"], [aria-label*="Details"], [aria-label*="Nhấn Enter"], [aria-label*="Gửi"], [aria-label*="Send"], [aria-label*="Press Enter"]')) {
           return;
         }
 
@@ -364,6 +373,11 @@ const SCRAPER_JS = `
           if (row) {
             t = cleanText(row.querySelector('div[dir="auto"], span[dir="auto"], .bubble-content, .text, .chat-message-text, .content-text')?.textContent || '');
           }
+        }
+
+        const lt = (t || '').toLowerCase();
+        if (lt === 'nhấn enter để gửi' || lt === 'gửi' || lt === 'send' || lt === 'press enter to send' || lt === 'aa') {
+          return;
         }
 
         const currentContact = contactName || window.__ai_last_contact || '';
@@ -382,7 +396,8 @@ const SCRAPER_JS = `
       success: true,
       platform,
       contactName: contactName || window.__ai_last_contact || '',
-      recentMessages
+      recentMessages,
+      lastIncomingMessage
     };
   } catch (err) {
     return { success: false, error: err.toString() };
@@ -403,6 +418,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
   const lastScannedRef = useRef<{ contactName: string; lastMessage: string }>({ contactName: '', lastMessage: '' });
   // User manual lock ref: preserves user clicked message until contact changes
   const userSelectedMessageRef = useRef<{ contactName: string; messageText: string } | null>(null);
+  const lastSeenIncomingRef = useRef<Record<string, string>>({});
 
   const targetUrl = PLATFORM_URLS[platform];
   const partitionName = `persist:${platform}`;
@@ -425,6 +441,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
       const result = await webview.executeJavaScript(SCRAPER_JS);
       if (result && result.success && result.contactName) {
         const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
+        const contactKey = `${platform}_${normalizeName(result.contactName)}`;
 
         const contactChanged = normalizeName(result.contactName) !== normalizeName(lastScannedRef.current.contactName);
         
@@ -447,11 +464,32 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
             result.recentMessages || []
           );
         }
+
+        // Detect new incoming messages for Auto-Reply
+        if (result.lastIncomingMessage) {
+          const prevIncoming = lastSeenIncomingRef.current[contactKey];
+          if (prevIncoming === undefined) {
+            // First time seeing this contact in current session: record baseline
+            lastSeenIncomingRef.current[contactKey] = result.lastIncomingMessage;
+          } else if (prevIncoming !== result.lastIncomingMessage) {
+            lastSeenIncomingRef.current[contactKey] = result.lastIncomingMessage;
+            console.log(`[New Incoming Message Detected for Auto-Reply]: "${result.lastIncomingMessage}" from "${result.contactName}"`);
+
+            if (settings?.globalAutoReply && window.electronAPI?.handleIncomingMessage) {
+              window.electronAPI.handleIncomingMessage(
+                platform,
+                result.contactName,
+                result.lastIncomingMessage,
+                result.recentMessages || []
+              );
+            }
+          }
+        }
       }
     } catch (e) {
       // Webview might still be loading
     }
-  }, [platform, handleActiveChatScanned]);
+  }, [platform, settings?.globalAutoReply, handleActiveChatScanned]);
 
   // Setup Webview Listeners
   useEffect(() => {
