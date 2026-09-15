@@ -302,7 +302,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Latest Incoming Message & Knowledge Badge */}
+        {/* Selected Message & Knowledge Badge */}
         <div className="flex items-start justify-between gap-2">
           <div
             onClick={incomingMsgDisplay ? () => handleRegenerate() : undefined}
@@ -314,7 +314,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             <MessageSquare className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${isRegenerating ? 'text-brand-400 animate-pulse' : 'text-brand-400'}`} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between mb-0.5">
-                <span className="text-slate-400 text-[10.5px] font-semibold block">Tin nhắn gần nhất:</span>
+                <span className="text-slate-400 text-[10.5px] font-semibold block">Tin nhắn đã chọn:</span>
                 {incomingMsgDisplay && (
                   <span className="text-[10px] text-brand-400/80 font-medium">Click để tạo lại</span>
                 )}
@@ -323,7 +323,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                 {incomingMsgDisplay ? (
                   `"${incomingMsgDisplay}"`
                 ) : (
-                  <span className="text-slate-500 italic">Nhấp vào ô tin nhắn bất kỳ để chọn...</span>
+                  <span className="text-slate-500 italic">Click vào tin nhắn bất kỳ trong chat để chọn...</span>
                 )}
               </p>
             </div>

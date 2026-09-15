@@ -427,8 +427,8 @@ function sendChatMessage(text: string): boolean {
 }
 
 // State tracking
+// State tracking
 let lastActiveContact = '';
-let lastScannedMessageText = '';
 let scanDebounceTimer: any = null;
 
 // Core Scanner
@@ -436,36 +436,21 @@ function scanActiveConversation(force = false) {
   const contactName = getActiveContactName();
   if (!contactName) return;
 
-  const recentMessages = getRecentMessages(12);
-  const lastMsg = recentMessages.length > 0 ? recentMessages[recentMessages.length - 1] : null;
-  const lastText = lastMsg ? lastMsg.text : '';
-
   const contactChanged = contactName !== lastActiveContact;
-  const messageChanged = lastText !== lastScannedMessageText;
 
-  if (force || contactChanged || (messageChanged && lastText.length > 0)) {
+  if (force || contactChanged) {
     lastActiveContact = contactName;
-    lastScannedMessageText = lastText;
+    const recentMessages = getRecentMessages(12);
 
-    console.log(`[Webview Scanned] Active Chat: "${contactName}" | Messages: ${recentMessages.length} | Last: "${lastText}"`);
+    console.log(`[Webview Scanned] Active Chat: "${contactName}" | Messages: ${recentMessages.length}`);
 
-    if (lastMsg && lastMsg.sender === 'contact' && messageChanged) {
-      ipcRenderer.sendToHost('webview:incoming-message', {
-        platform: currentPlatform,
-        contactName,
-        messageText: lastText,
-        recentMessages,
-        timestamp: Date.now()
-      });
-    } else {
-      ipcRenderer.sendToHost('webview:active-chat-scanned', {
-        platform: currentPlatform,
-        contactName,
-        lastMessage: lastText,
-        recentMessages,
-        timestamp: Date.now()
-      });
-    }
+    ipcRenderer.sendToHost('webview:active-chat-scanned', {
+      platform: currentPlatform,
+      contactName,
+      lastMessage: '',
+      recentMessages,
+      timestamp: Date.now()
+    });
   }
 }
 

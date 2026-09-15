@@ -345,8 +345,7 @@ const SCRAPER_JS = `
       success: true,
       platform,
       contactName: contactName || window.__ai_last_contact || '',
-      recentMessages,
-      lastMessage: lastMsg ? lastMsg.text : ''
+      recentMessages
     };
   } catch (err) {
     return { success: false, error: err.toString() };
@@ -365,7 +364,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
   const [isScanning, setIsScanning] = useState<boolean>(false);
 
   const lastScannedRef = useRef<{ contactName: string; lastMessage: string }>({ contactName: '', lastMessage: '' });
-  // User manual lock ref: preserves user clicked message until contact changes or user explicitly re-scans
+  // User manual lock ref: preserves user clicked message until contact changes
   const userSelectedMessageRef = useRef<{ contactName: string; messageText: string } | null>(null);
 
   const targetUrl = PLATFORM_URLS[platform];
@@ -389,7 +388,6 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
       const result = await webview.executeJavaScript(SCRAPER_JS);
       if (result && result.success && result.contactName) {
         const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
-        const normalizeText = (s?: string) => (s || '').trim();
 
         const contactChanged = normalizeName(result.contactName) !== normalizeName(lastScannedRef.current.contactName);
         
@@ -398,26 +396,18 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
           userSelectedMessageRef.current = null;
         }
 
-        // If user has manually locked a message for this contact, do NOT overwrite it with background scan
-        if (!force && userSelectedMessageRef.current && normalizeName(userSelectedMessageRef.current.contactName) === normalizeName(result.contactName)) {
-          return;
-        }
-
-        const messageChanged = result.lastMessage && normalizeText(result.lastMessage) !== normalizeText(lastScannedRef.current.lastMessage);
-
-        if (force || contactChanged || messageChanged) {
+        if (force || contactChanged) {
           lastScannedRef.current = {
             contactName: result.contactName,
-            lastMessage: result.lastMessage || ''
+            lastMessage: ''
           };
           setActiveContact(result.contactName);
 
-          // Dispatch to AppContext to update Copilot suggestions
+          // Dispatch to AppContext to update active contact info (without overwriting clicked message)
           await handleActiveChatScanned(
             platform,
             result.contactName,
-            result.recentMessages || [],
-            result.lastMessage
+            result.recentMessages || []
           );
         }
       }
@@ -451,7 +441,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
 
       if (channel === 'webview:message-clicked') {
         if (data && data.contactName && data.messageText) {
-          // Lock message selected by user
+          // Lock message selected by user click
           userSelectedMessageRef.current = {
             contactName: data.contactName,
             messageText: data.messageText
@@ -472,33 +462,20 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ platform }) => {
       } else if (channel === 'webview:active-chat-scanned' || channel === 'webview:incoming-message') {
         if (data && data.contactName) {
           const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
-          const normalizeText = (s?: string) => (s || '').trim();
 
           const contactChanged = normalizeName(data.contactName) !== normalizeName(lastScannedRef.current.contactName);
           if (contactChanged) {
             userSelectedMessageRef.current = null;
-          }
-
-          // If user locked message for this contact, don't overwrite
-          if (userSelectedMessageRef.current && normalizeName(userSelectedMessageRef.current.contactName) === normalizeName(data.contactName)) {
-            return;
-          }
-
-          const newMsg = data.lastMessage || data.messageText || '';
-          const messageChanged = newMsg && normalizeText(newMsg) !== normalizeText(lastScannedRef.current.lastMessage);
-
-          if (contactChanged || messageChanged) {
             lastScannedRef.current = {
               contactName: data.contactName,
-              lastMessage: newMsg
+              lastMessage: ''
             };
             setActiveContact(data.contactName);
             setIsScanning(false);
             handleActiveChatScanned(
               platform,
               data.contactName,
-              data.recentMessages || [],
-              newMsg
+              data.recentMessages || []
             );
           }
         }

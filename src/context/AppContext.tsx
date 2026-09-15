@@ -327,12 +327,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     platform: TargetPlatform,
     contactName: string,
     recentMessages: Array<{ sender: string; text: string }>,
-    incomingMessage?: string
+    _incomingMessage?: string
   ) => {
     if (!window.electronAPI || !contactName) return;
 
     lastRecentMessagesRef.current = recentMessages;
-    const lastMsgText = incomingMessage || (recentMessages.length > 0 ? recentMessages[recentMessages.length - 1].text : '');
     
     // Auto-resolve persona and category
     const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
@@ -341,24 +340,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const defaultPersona = personas.find(p => p.id === personaId) || personas[0];
     const cat = matchedContact?.category || defaultPersona?.category || 'customer';
 
-    // Immediately update active contact and display in Copilot without auto-generating
-    setCurrentSuggestion(prev => ({
-      platform,
-      contactName,
-      contactCategory: prev?.contactName === contactName ? prev.contactCategory : cat,
-      incomingMessage: lastMsgText || prev?.incomingMessage || '',
-      replyResponse: (prev?.contactName === contactName && prev.replyResponse) ? prev.replyResponse : {
-        success: true,
-        contactCategory: cat,
-        persona: defaultPersona,
-        suggestedReplies: prev?.replyResponse?.suggestedReplies || [],
-        detectedIntent: 'Sẵn sàng tạo gợi ý',
-        matchedKnowledge: [],
-        recommendedAction: 'copilot_review'
-      },
-      isAutoReplyScheduled: false,
-      scheduledDelay: 0
-    }));
+    // Immediately update active contact and display in Copilot without auto-filling or auto-generating
+    setCurrentSuggestion(prev => {
+      const isSameContact = Boolean(prev?.contactName && normalizeName(prev.contactName) === normalizeName(contactName));
+      const preservedIncoming = isSameContact ? (prev?.incomingMessage || '') : '';
+
+      return {
+        platform,
+        contactName,
+        contactCategory: (isSameContact && prev) ? prev.contactCategory : cat,
+        incomingMessage: preservedIncoming,
+        replyResponse: (isSameContact && prev?.replyResponse) ? prev.replyResponse : {
+          success: true,
+          contactCategory: cat,
+          persona: defaultPersona,
+          suggestedReplies: [],
+          detectedIntent: preservedIncoming ? 'Đã chọn tin nhắn' : 'Chưa chọn tin nhắn',
+          matchedKnowledge: [],
+          recommendedAction: 'copilot_review'
+        },
+        isAutoReplyScheduled: false,
+        scheduledDelay: 0
+      };
+    });
   };
 
   const handleMessageSelected = async (
