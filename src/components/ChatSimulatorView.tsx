@@ -69,7 +69,7 @@ const PRESET_SCENARIOS: PresetScenario[] = [
 ];
 
 export const ChatSimulatorView: React.FC = () => {
-  const { simulatorMessages, sendSimulatorContactMessage, clearSimulatorHistory } = useApp();
+  const { simulatorMessages, sendSimulatorContactMessage, clearSimulatorHistory, handleUserMessage } = useApp();
   const [activeCategory, setActiveCategory] = useState<ContactCategory>('customer');
   const [senderName, setSenderName] = useState<string>('Nguyễn Văn Khang');
   const [inputText, setInputText] = useState<string>('');
@@ -81,7 +81,11 @@ export const ChatSimulatorView: React.FC = () => {
     const textToSend = inputText.trim();
     setInputText('');
     try {
-      await sendSimulatorContactMessage(senderName, textToSend, activeCategory);
+      if (textToSend === '.' || textToSend === '...') {
+        await handleUserMessage('simulator', senderName, textToSend);
+      } else {
+        await sendSimulatorContactMessage(senderName, textToSend, activeCategory);
+      }
     } finally {
       setIsSending(false);
     }

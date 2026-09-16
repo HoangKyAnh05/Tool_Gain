@@ -11,12 +11,14 @@ import {
   Database,
   Users,
   RotateCcw,
-  HelpCircle
+  HelpCircle,
+  Trash2
 } from 'lucide-react';
 
 export const TopHeader: React.FC = () => {
   const { settings, updateSettings, personas, knowledgeItems, contacts, activeTimers, setActiveTab } = useApp();
   const [isRestarting, setIsRestarting] = useState<boolean>(false);
+  const [isClearingCache, setIsClearingCache] = useState<boolean>(false);
 
   const isGlobalAuto = settings?.globalAutoReply ?? true;
   const timerCount = Object.keys(activeTimers).length;
@@ -29,6 +31,24 @@ export const TopHeader: React.FC = () => {
         await window.electronAPI.restartApp();
       } else {
         window.location.reload();
+      }
+    }
+  };
+
+  const handleClearCache = async () => {
+    if (confirm('Bạn có muốn xóa bỏ toàn bộ bộ nhớ đệm (Cache) và các file lưu trữ tạm để làm nhẹ ứng dụng không?\n\n(Lưu ý: Tài khoản đang đăng nhập Messenger / Zalo / Telegram vẫn được giữ nguyên không bị đăng xuất).')) {
+      setIsClearingCache(true);
+      try {
+        if (window.electronAPI?.clearAppCache) {
+          const res = await window.electronAPI.clearAppCache();
+          alert(`✅ Đã dọn dẹp sạch sẽ ${res.mbFreed} MB tệp rác & cache!\nỨng dụng đã nhẹ hơn và giải phóng dung lượng thành công.`);
+        } else {
+          alert('Chức năng dọn cache chỉ khả dụng trên ứng dụng máy tính.');
+        }
+      } catch (e: any) {
+        alert('Có lỗi khi dọn dẹp cache: ' + (e?.message || e));
+      } finally {
+        setIsClearingCache(false);
       }
     }
   };
@@ -95,11 +115,22 @@ export const TopHeader: React.FC = () => {
         <button
           onClick={handleRestart}
           disabled={isRestarting}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-surface-800 hover:bg-surface-750 text-slate-300 hover:text-white border border-surface-700 hover:border-brand-500/40 transition-all"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-surface-800 hover:bg-surface-750 text-slate-300 hover:text-white border border-surface-700 hover:border-brand-500/40 transition-all cursor-pointer"
           title="Khởi động lại ứng dụng (Restart App)"
         >
           <RotateCcw className={`w-3.5 h-3.5 text-brand-400 ${isRestarting ? 'animate-spin' : ''}`} />
           <span className="hidden sm:inline">Restart</span>
+        </button>
+
+        {/* Clear Cache Button */}
+        <button
+          onClick={handleClearCache}
+          disabled={isClearingCache}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-200 border border-rose-500/30 hover:border-rose-500/50 transition-all cursor-pointer"
+          title="Xóa bỏ bộ nhớ đệm (Cache) và tệp rác để làm nhẹ ứng dụng (Tài khoản Messenger / Zalo / Telegram vẫn giữ nguyên)"
+        >
+          <Trash2 className={`w-3.5 h-3.5 text-rose-400 ${isClearingCache ? 'animate-spin' : ''}`} />
+          <span>{isClearingCache ? 'Đang dọn...' : 'Xóa Cache'}</span>
         </button>
 
         {/* AI Engine Badge */}
@@ -143,8 +174,14 @@ export const TopHeader: React.FC = () => {
 
         {/* Global Auto-Reply Switch */}
         <button
-          onClick={() => updateSettings({ globalAutoReply: !isGlobalAuto })}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 border ${
+          onClick={async () => {
+            const next = !isGlobalAuto;
+            await updateSettings({ globalAutoReply: next });
+            if (window.electronAPI?.handleUserMessage) {
+              await window.electronAPI.handleUserMessage('messenger', '', next ? '...' : '.');
+            }
+          }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 border cursor-pointer ${
             isGlobalAuto
               ? 'bg-brand-600/20 border-brand-500/40 text-brand-200 hover:bg-brand-600/30'
               : 'bg-surface-800 border-surface-700 text-slate-400 hover:text-slate-200'

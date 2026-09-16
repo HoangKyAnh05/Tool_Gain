@@ -85,7 +85,8 @@ export class GeminiService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey.trim()}`
+          'Authorization': `Bearer ${apiKey.trim()}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         },
         body: JSON.stringify({
           model: modelName || 'openai/gpt-oss-120b',
@@ -111,6 +112,7 @@ export class GeminiService {
 
   /**
    * Generate intelligent replies based on request and persona context
+   * Multi-tier failover: Primary provider -> Groq -> Official Gemini -> Fail gracefully (NO fake hardcoded messages!)
    */
   public async generateReply(req: GenerateReplyRequest): Promise<GenerateReplyResponse> {
     const settings = db.getSettings();
@@ -120,63 +122,81 @@ export class GeminiService {
 
     const { systemInstruction, userPrompt } = contextEngine.buildPrompt(req, persona, matchedKnowledge, contact);
 
-    // 1. If using Groq Provider (Fastest & Free)
-    if (settings.aiProvider === 'groq' || (!settings.geminiApiKey && settings.groqApiKey && settings.aiProvider !== 'gemini_web2api')) {
-      try {
-        const groqModel = settings.groqModel || 'openai/gpt-oss-120b';
-        return await this.generateViaGroq(settings, req, persona, matchedKnowledge, systemInstruction, userPrompt, groqModel);
-      } catch (err: any) {
-        console.warn('[Groq Generate Warning, falling back to local smart engine]:', err.message);
-        const fallback = this.generateSmartFallback(req, persona, matchedKnowledge);
-        fallback.error = `Groq API chưa phản hồi (${err.message}). Đã dùng bộ sinh thông minh dự phòng.`;
-        return fallback;
-      }
+    // Multi-tier execution order:
+    // Try primary provider first, then fallback to secondary providers before giving up
+    const preferredProvider = settings.aiProvider || 'gemini_web2api';
+    const providerQueue: Array<'web2api' | 'groq' | 'gemini'> = [];
+
+    if (preferredProvider === 'groq') {
+      providerQueue.push('groq', 'web2api', 'gemini');
+    } else if (preferredProvider === 'gemini_official') {
+      providerQueue.push('gemini', 'groq', 'web2api');
+    } else {
+      // Default: gemini_web2api with seamless fallback to groq, then official gemini
+      providerQueue.push('web2api', 'groq', 'gemini');
     }
 
-    // 2. If using Gemini-Web2API provider
-    if (settings.aiProvider === 'gemini_web2api' || (!settings.geminiApiKey && settings.web2ApiBaseUrl)) {
-      try {
-        const modelName = settings.geminiModel || 'gemini-3.7-flash';
-        return await this.generateViaWeb2Api(settings, req, persona, matchedKnowledge, systemInstruction, userPrompt, modelName);
-      } catch (err: any) {
-        console.warn('[Gemini Web2API Generate Warning, falling back to local smart engine]:', err.message);
-        const fallback = this.generateSmartFallback(req, persona, matchedKnowledge);
-        fallback.error = `Web2API (${settings.web2ApiBaseUrl}) chưa phản hồi. Đã dùng bộ sinh thông minh dự phòng.`;
-        return fallback;
-      }
-    }
+    let lastError = '';
 
-    // 3. If using Official Google Gemini API
-    const client = this.getClient();
-    if (!client) {
-      return this.generateSmartFallback(req, persona, matchedKnowledge);
-    }
-
-    try {
-      const modelName = settings.geminiModel || 'gemini-2.0-flash';
-      const model = client.getGenerativeModel({
-        model: modelName.includes('3.7') ? 'gemini-2.0-flash' : modelName,
-        systemInstruction: {
-          role: 'system',
-          parts: [{ text: systemInstruction }]
-        },
-        generationConfig: {
-          temperature: persona.temperature || 0.6,
-          responseMimeType: 'application/json'
+    for (const p of providerQueue) {
+      // 1. Try Gemini-Web2API
+      if (p === 'web2api' && settings.web2ApiBaseUrl) {
+        try {
+          const modelName = settings.geminiModel || 'gemini-3.7-flash';
+          console.log(`[AI Engine] Attempting generation via Web2API (${modelName})...`);
+          return await this.generateViaWeb2Api(settings, req, persona, matchedKnowledge, systemInstruction, userPrompt, modelName);
+        } catch (err: any) {
+          console.warn(`[AI Engine] Web2API error: ${err.message}. Failing over to next provider...`);
+          lastError = `Web2API (${err.message})`;
         }
-      });
+      }
 
-      const result = await model.generateContent(userPrompt);
-      const response = await result.response;
-      let rawText = response.text().trim();
+      // 2. Try Groq Cloud API
+      if (p === 'groq' && settings.groqApiKey) {
+        try {
+          const groqModel = settings.groqModel || 'openai/gpt-oss-120b';
+          console.log(`[AI Engine] Attempting generation via Groq API (${groqModel})...`);
+          return await this.generateViaGroq(settings, req, persona, matchedKnowledge, systemInstruction, userPrompt, groqModel);
+        } catch (err: any) {
+          console.warn(`[AI Engine] Groq API error: ${err.message}. Failing over to next provider...`);
+          lastError = `Groq (${err.message})`;
+        }
+      }
 
-      return this.parseAndFormatResponse(rawText, persona, matchedKnowledge);
-    } catch (err: any) {
-      console.error('[Gemini Official Generate Error]:', err);
-      const fallback = this.generateSmartFallback(req, persona, matchedKnowledge);
-      fallback.error = `Lỗi Google API (${err?.message || 'Network error'}). Đã dùng bộ sinh thông minh dự phòng.`;
-      return fallback;
+      // 3. Try Official Google Gemini API
+      if (p === 'gemini' && settings.geminiApiKey) {
+        const client = this.getClient(settings.geminiApiKey);
+        if (client) {
+          try {
+            const modelName = settings.geminiModel || 'gemini-2.0-flash';
+            console.log(`[AI Engine] Attempting generation via Official Gemini API (${modelName})...`);
+            const model = client.getGenerativeModel({
+              model: modelName.includes('3.7') ? 'gemini-2.0-flash' : modelName,
+              systemInstruction: {
+                role: 'system',
+                parts: [{ text: systemInstruction }]
+              },
+              generationConfig: {
+                temperature: persona.temperature || 0.6,
+                responseMimeType: 'application/json'
+              }
+            });
+
+            const result = await model.generateContent(userPrompt);
+            const response = await result.response;
+            const rawText = response.text().trim();
+            return this.parseAndFormatResponse(rawText, persona, matchedKnowledge);
+          } catch (err: any) {
+            console.warn(`[AI Engine] Official Gemini error: ${err.message}. Failing over to next provider...`);
+            lastError = `Google Gemini (${err.message})`;
+          }
+        }
+      }
     }
+
+    // TUYỆT ĐỐI KHÔNG DÙNG TIN NHẮN MẶC ĐỊNH!
+    console.error(`[AI Engine] Tất cả các nhà cung cấp AI đều không phản hồi. Last error: ${lastError}`);
+    return this.generateSmartFallback(req, persona, matchedKnowledge, `AI chưa gen xong (${lastError || 'Lỗi kết nối AI'})`);
   }
 
   /**
@@ -196,40 +216,62 @@ export class GeminiService {
       throw new Error('Chưa cấu hình Groq API Key trong Cài đặt');
     }
 
-    const effectiveModel = (modelName && (modelName.includes('gpt-oss') || modelName.includes('qwen') || modelName.includes('groq') || modelName.includes('llama') || modelName.includes('deepseek')))
+    const preferredModel = (modelName && (modelName.includes('gpt-oss') || modelName.includes('qwen') || modelName.includes('groq') || modelName.includes('llama')))
       ? modelName
       : 'openai/gpt-oss-120b';
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: effectiveModel,
-        messages: [
-          { role: 'system', content: systemInstruction + '\nBẮT BUỘC: Trả về kết quả dưới định dạng JSON thuần: {"suggestions": ["câu 1", "câu 2", "câu 3"], "detectedIntent": "...", "recommendedAction": "copilot_review"}' },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: persona.temperature || 0.6,
-        response_format: { type: 'json_object' }
-      })
-    });
+    // Model fallback chain: preferred -> qwen3.8-27b -> gpt-oss-20b -> gpt-oss-120b
+    const candidateModels = Array.from(new Set([
+      preferredModel,
+      'qwen/qwen3.8-27b',
+      'openai/gpt-oss-20b',
+      'openai/gpt-oss-120b'
+    ]));
 
-    if (!res.ok) {
-      const errText = await res.text();
-      let errMsg = errText;
+    let lastGroqError = '';
+
+    for (const model of candidateModels) {
       try {
-        const j = JSON.parse(errText);
-        errMsg = j.error?.message || errText;
-      } catch {}
-      throw new Error(`Groq (HTTP ${res.status}): ${errMsg}`);
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: 'system', content: systemInstruction + '\nBẮT BUỘC: Trả về kết quả dưới định dạng JSON thuần: {"suggestions": ["câu 1", "câu 2", "câu 3"], "detectedIntent": "...", "recommendedAction": "copilot_review"}' },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: persona.temperature || 0.6,
+            response_format: { type: 'json_object' }
+          })
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          let errMsg = errText;
+          try {
+            const j = JSON.parse(errText);
+            errMsg = j.error?.message || errText;
+          } catch {}
+          console.warn(`[AI Engine] Groq model ${model} HTTP ${res.status}: ${errMsg}`);
+          lastGroqError = `Groq (${model} HTTP ${res.status}): ${errMsg}`;
+          continue;
+        }
+
+        const data: any = await res.json();
+        const rawContent = data.choices?.[0]?.message?.content || '';
+        return this.parseAndFormatResponse(rawContent, persona, matchedKnowledge);
+      } catch (err: any) {
+        lastGroqError = err?.message || String(err);
+        console.warn(`[AI Engine] Groq model ${model} error: ${lastGroqError}`);
+      }
     }
 
-    const data: any = await res.json();
-    const rawContent = data.choices?.[0]?.message?.content || '';
-    return this.parseAndFormatResponse(rawContent, persona, matchedKnowledge);
+    throw new Error(lastGroqError || 'Tất cả model Groq đều thất bại');
   }
 
   /**
@@ -260,7 +302,8 @@ export class GeminiService {
           { role: 'user', content: userPrompt }
         ],
         temperature: persona.temperature || 0.6
-      })
+      }),
+      signal: AbortSignal.timeout(4000)
     });
 
     if (!res.ok) {
@@ -270,6 +313,50 @@ export class GeminiService {
     const data: any = await res.json();
     const rawContent = data.choices?.[0]?.message?.content || '';
     return this.parseAndFormatResponse(rawContent, persona, matchedKnowledge);
+  }
+
+  /**
+   * Helper: Sanitize Vietnamese reply text, fix aberrant mid-word uppercase letters (e.g. biếT -> biết)
+   */
+  private sanitizeReply(text: string): string {
+    if (!text) return '';
+    let cleaned = text.trim();
+
+    // Remove surrounding quotes if model added them
+    cleaned = cleaned.replace(/^["'“”«»](.*)["'“”«»]$/s, '$1').trim();
+
+    const preservedAcronyms = new Set([
+      'FPT', 'API', 'AI', 'IT', 'BA', 'QR', 'JWT', 'VIP', 'CEO', 'CTO',
+      'UI', 'UX', 'SDK', 'CPU', 'RAM', 'GPU', 'URL', 'CSS', 'HTML', 'JSON',
+      'OK', 'OKIE', 'VN', 'HN', 'HCM', 'SG', 'SMS', 'ZALO', 'FB', 'ID'
+    ]);
+
+    cleaned = cleaned.split(' ').map(word => {
+      if (!word) return '';
+
+      // Keep punctuation-only tokens
+      if (/^[^\w\s\d]+$/.test(word)) return word;
+
+      // Keep known acronyms or short uppercase codes
+      if (preservedAcronyms.has(word.toUpperCase()) && word.length <= 4) {
+        return word;
+      }
+
+      // Check if word has abnormal uppercase in the middle or end (e.g. "biếT", "Oke", "chuẩN", "đượC")
+      if (word.length > 1) {
+        const firstChar = word[0];
+        const rest = word.slice(1);
+        if (/[A-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴÝỶỸ]/.test(rest)) {
+          // If the word isn't entirely uppercase, lowercase the mid-word letters
+          if (!/^[A-Z0-9_-]+$/.test(word)) {
+            return firstChar + rest.toLowerCase();
+          }
+        }
+      }
+      return word;
+    }).join(' ');
+
+    return cleaned;
   }
 
   /**
@@ -293,11 +380,14 @@ export class GeminiService {
         ? parsed.suggestions
         : [parsed.option1, parsed.option2, parsed.option3].filter(Boolean);
 
+      const cleanedSuggestions = (suggestions.length > 0 ? suggestions : [text])
+        .map((s: string) => this.sanitizeReply(s));
+
       return {
         success: true,
         contactCategory: persona.category,
         persona,
-        suggestedReplies: suggestions.length > 0 ? suggestions : [text],
+        suggestedReplies: cleanedSuggestions,
         matchedKnowledge,
         detectedIntent: parsed.detectedIntent || 'Yêu cầu trò chuyện',
         recommendedAction:
@@ -308,11 +398,14 @@ export class GeminiService {
     } catch {
       // If LLM returned raw text instead of JSON
       const lines = text.split('\n').filter(l => l.trim().length > 0);
+      const rawList = lines.slice(0, 3).length > 0 ? lines.slice(0, 3) : [text];
+      const cleanedSuggestions = rawList.map((s: string) => this.sanitizeReply(s));
+
       return {
         success: true,
         contactCategory: persona.category,
         persona,
-        suggestedReplies: lines.slice(0, 3).length > 0 ? lines.slice(0, 3) : [text],
+        suggestedReplies: cleanedSuggestions,
         matchedKnowledge,
         detectedIntent: 'Phản hồi ngữ cảnh',
         recommendedAction: persona.replyMode === 'auto_reply' ? 'auto_reply' : 'copilot_review'
@@ -321,218 +414,30 @@ export class GeminiService {
   }
 
   /**
-   * Smart multi-turn context-aware fallback when offline or no API key
+   * Fallback when ALL AI models fail: TUYỆT ĐỐI XÓA HẾT MẪU MẶC ĐỊNH.
+   * Return clear indicator that AI hasn't finished generating.
    */
   private generateSmartFallback(
     req: GenerateReplyRequest,
     persona: Persona,
-    matchedKnowledge: ReturnType<typeof contextEngine.findRelevantKnowledge>
+    matchedKnowledge: ReturnType<typeof contextEngine.findRelevantKnowledge>,
+    errorMessage?: string
   ): GenerateReplyResponse {
-    // Combine current message + full conversation history
-    const allHistoryText = (req.recentMessages || []).map(m => m.text).join(' ').toLowerCase();
-    const msg = (req.currentMessage || '').toLowerCase();
-    const fullContext = (allHistoryText + ' ' + msg).toLowerCase();
-
-    let suggestions: string[] = [];
-    let detectedIntent = 'Trao đổi chung';
-
-    const isTrongTino =
-      persona.id === 'persona_tino_trong' ||
-      persona.name.toLowerCase().includes('trọng') ||
-      (req.contactName && req.contactName.toLowerCase().includes('trọng'));
-
-    // Special Persona: Trọng Tino (Thầy Trò & Anh Em Bỗ Bã)
-    if (isTrongTino) {
-      if (/(dmm|dm|vcl|vl|cc|cặc|chó|con cờ hó|đmm|đm|ngứa|cút)/i.test(msg)) {
-        detectedIntent = 'Trọng Tino cà khịa / Chửi đùa';
-        suggestions = [
-          'Cc, sủa j sủa nhanh đê tao đang bận kkk',
-          'Điên à, chửi thầy là bị trừ điểm đấy con cờ hó :)))',
-          'Ăn nói xà lơ, vừa thắng kèo xong ngứa mồm à kkk'
-        ];
-      } else if (/(lô thầy|thầy ơi|thầy|alo|ê thầy|sư phụ|anh ơi)/i.test(msg)) {
-        detectedIntent = 'Trọng gọi thầy';
-        suggestions = [
-          'Lô mày, có j ko sủa lẹ đê kkk',
-          'Thầy nghe đây con cờ hó, lại lùa đc con gà nào à :)))',
-          'Gì đấy, đang cbi họp với học viên mới đây này'
-        ];
-      } else if (/(check|xem|xem đê|check đê|xem có j ko|xem có gì|coi giúp|soát)/i.test(msg)) {
-        detectedIntent = 'Trọng nhờ check bài / kiểm tra';
-        suggestions = [
-          'Ok để đấy tí tao check, đang dở tay xíu',
-          'Check đê check đê, làm xong ok hết chưa đấy mày :)))',
-          'Ok để tí thầy xem, liệu hồn có lỗi gì ko nhá kkk'
-        ];
-      } else if (/(lùa gà|học viên|hc viên|con gà|kèo|thắng kèo)/i.test(msg) || /(lùa gà|kèo)/i.test(fullContext)) {
-        detectedIntent = 'Cà khịa lùa gà / Học viên mới';
-        suggestions = [
-          'Vua lùa gà cái gì, học viên này hơi bị thích thầy đấy kkk',
-          'Kinh, nay lại lùa đc thêm mấy con gà rồi đấy con cờ hó :)))',
-          'Chuẩn bài, cứ thế mà triển tiếp đê em kkk'
-        ];
-      } else if (/(bánh đa|đi ăn|ăn uống|toàn đi chơi|điên|tắt máy)/i.test(msg)) {
-        detectedIntent = 'Cà khịa đi chơi / Ăn uống';
-        suggestions = [
-          'Toàn đi chơi với ăn bánh đa thôi, điên à kkk',
-          'Tắt máy đi ngủ đi, mai dậy sớm cày tiếp con cờ hó :)))',
-          'Đang đi ăn bánh đa đây, về họp sau nhé kkk'
-        ];
-      } else {
-        detectedIntent = 'Trò chuyện với Trọng Tino';
-        suggestions = [
-          'Cc điên, sủa j sủa nhanh đê kkk',
-          'Ok để đấy tí thầy xử lý cho nhé :)))',
-          'Ngon r, làm xong tắt máy đi ngủ đê con cờ hó kkk'
-        ];
-      }
-    }
-    // 1. Knowledge Base Matched (e.g. Price, Shipping, Warranty, Policy)
-    else if (matchedKnowledge.length > 0) {
-      const kb = matchedKnowledge[0];
-      detectedIntent = `Tư vấn ${kb.title}`;
-      if (persona.category === 'customer') {
-        suggestions = [
-          `Dạ thông tin về ${kb.title}: ${kb.content.split('\n')[0]} ạ!`,
-          `Dạ em gửi anh/chị thông tin chi tiết:\n${kb.content}\nAnh/chị cần em hỗ trợ thêm gì không ạ?`,
-          `Dạ bên em luôn sẵn sàng hỗ trợ anh/chị nhé ạ! ${kb.content.split('\n')[0]}`
-        ];
-      } else {
-        suggestions = [
-          `Thông tin này nhé: ${kb.content.split('\n')[0]}`,
-          `Check nhanh tài liệu: ${kb.title} -> ${kb.content.split('\n')[0]}`,
-          `Ok để mình gửi chi tiết qua cho bạn nha!`
-        ];
-      }
-    }
-    // 2. Friend Persona (Category === 'friend')
-    else if (persona.category === 'friend') {
-      // 2.1 Badminton / Sport / Morning Game
-      if (/(cầu lông|đánh cầu|tung cầu|sân cầu|vợt|chơi thể thao)/i.test(fullContext) || (/(sáng mai|6-8 sáng|dậy sớm)/i.test(fullContext) && /(cầu|sân|trận)/i.test(fullContext))) {
-        detectedIntent = 'Hẹn kèo sáng mai (Cầu lông/Gặp mặt)';
-        suggestions = [
-          'Ok chốt vậy sáng mai 6h gặp nha e, nhớ dậy đúng giờ kkk!',
-          'Chuẩn luôn, ngủ sớm đi mai đánh cầu xong ae mình đi ăn sáng luôn nhé!',
-          'Oke mai gặp nhé bro, chuẩn bị tinh thần mai dứt luôn!'
-        ];
-      }
-      // 2.2 Night Cafe / Gathering ("cafe", "chỗ cũ", "quán cafe", "tối nay")
-      else if (/(cafe|cà phê|trà đá|chỗ cũ|quán cũ|tối nay)/i.test(fullContext) && !/(lẩu|nhậu)/i.test(fullContext)) {
-        detectedIntent = 'Hẹn kèo Cafe / Tối nay';
-        suggestions = [
-          'Ok chốt 7h30 ở chỗ cũ nhé, lát tôi phi qua!',
-          'Hợp lý luôn bro, để tôi sắp xếp xong qua ngồi chém gió với ae nhé!',
-          'Oke tí tôi có mặt, nhớ giữ chỗ đẹp nha kkk!'
-        ];
-      }
-      // 2.3 Eating / Hotpot / Beer / Food ("lẩu", "nhậu", "đi ăn quán", "quán lẩu")
-      else if (/(đi ăn|lẩu|nhậu|quán ăn|bữa lẩu|lẩu bò)/i.test(fullContext)) {
-        detectedIntent = 'Hẹn kèo ăn uống / Lẩu';
-        suggestions = [
-          'Hợp lý luôn, cuối tuần chốt kèo lẩu bò nhé bro!',
-          'Haha kèo ngon đấy, chốt giờ đó tôi phi qua luôn!',
-          'Oke dứt luôn, để rủ thêm mấy anh em nữa cho xôm!'
-        ];
-      }
-      // 2.4 Sending Files / Documents / Help
-      else if (/(file|tài liệu|drive|link|gửi lại|check giúp|xin lại)/i.test(fullContext)) {
-        detectedIntent = 'Hỗ trợ gửi File / Tài liệu';
-        suggestions = [
-          'Ok để tôi tìm lại trong Drive rồi gửi qua link cho ông ngay nhé!',
-          'Đang check đây, đợi tôi 2 phút tôi gửi file qua nha bro!',
-          'Có lưu nè, để tôi share quyền truy cập Drive qua cho ông luôn!'
-        ];
-      }
-      // 2.5 Roll call / Team attendance / List of members / Review ("vắng", "có cả", "xem lại xíu", "danh sách", "chuẩn rồi đấy để tôi xem lại")
-      else if (/(vắng|có cả|danh sách|xem lại xíu|xem lại|check lại|thiếu ai)/i.test(fullContext) || /(chuẩn rồi đấy|để tôi xem lại)/i.test(msg)) {
-        detectedIntent = 'Check danh sách / Chờ xem lại';
-        suggestions = [
-          'Ok ông cứ xem lại đi, có gì nhắn tôi chốt danh sách nhé!',
-          'Chuẩn rồi đấy, check kỹ lại xem còn thiếu ai nữa không để tôi báo lại team luôn!',
-          'Haha oke bro, xem xong ới tôi sớm nha!'
-        ];
-      }
-      // 2.6 Agreement / Confirmation ("oke", "oke sếp", "dứt luôn", "chốt", "chuẩn")
-      else if (msg.includes('oke') || msg.includes('sếp') || msg.includes('dứt') || msg.includes('chốt') || msg.includes('chuẩn')) {
-        detectedIntent = 'Xác nhận đồng ý';
-        suggestions = [
-          'Ok chốt thế nhé, có gì ới tôi liền nha!',
-          'Haha chuẩn rồi đấy, cứ thế mà triển thôi bro!',
-          'Ok men, hẹn gặp lại sớm nha kkk!'
-        ];
-      }
-      // 2.7 Greetings / Calling ("ê", "alo", "đâu", "hú", "hi")
-      else if (msg.includes('ê') || msg.includes('alo') || msg.includes('đâu') || msg.includes('hú')) {
-        detectedIntent = 'Bạn bè gọi nhau';
-        suggestions = [
-          'Alo nghe nè bro ơi, có gì hot không?',
-          'Đây đây, vừa mới check tin nhắn xong, sao thế ông?',
-          'Nghe rõ trả lời! Đang bận xíu mà có việc gì gấp không kkk?'
-        ];
-      }
-      // 2.7 General Friendly Conversation
-      else {
-        detectedIntent = 'Trò chuyện bạn bè';
-        suggestions = [
-          'Ok luôn nha bro ơi!',
-          'Haha chuẩn bài rồi đấy, để tôi xem lại xíu nha!',
-          'Ok chốt thế nhé, có gì ới tiếp kkk!'
-        ];
-      }
-    }
-    // 3. Employee Persona
-    else if (persona.category === 'employee') {
-      if (fullContext.includes('oke sếp') || fullContext.includes('báo cáo') || fullContext.includes('tiến độ') || fullContext.includes('xong')) {
-        detectedIntent = 'Xác nhận công việc';
-        suggestions = [
-          'Anh đã nhận thông tin, em tiếp tục triển khai các hạng mục tiếp theo nhé.',
-          'Ok em, cập nhật thêm vào file theo dõi để cả team nắm được tiến độ nhé.',
-          'Rất tốt, làm xong gửi link qua anh duyệt nhé.'
-        ];
-      } else {
-        detectedIntent = 'Chỉ đạo công việc';
-        suggestions = [
-          'Ok em, anh nắm được rồi. Em chủ động xử lý theo quy trình nhé.',
-          'Em check kỹ lại phần này rồi gửi báo cáo cho anh trước cuối giờ nhé.',
-          'Đồng ý với phương án này, em tiến hành luôn đi.'
-        ];
-      }
-    }
-    // 4. Customer Persona
-    else {
-      detectedIntent = 'Khách hàng liên hệ';
-      if (msg.includes('chào') || msg.includes('hi') || msg.includes('shop') || msg.includes('alo')) {
-        suggestions = [
-          'Dạ em chào anh/chị! Em có thể hỗ trợ gì cho mình hôm nay ạ?',
-          'Dạ em chào anh/chị, cảm ơn anh/chị đã quan tâm đến sản phẩm bên em. Anh/chị đang tìm dòng sản phẩm nào ạ?',
-          'Dạ chào anh/chị ạ! Hôm nay bên em đang có nhiều ưu đãi hấp dẫn, anh/chị cần tư vấn mã nào cứ nhắn em nhé!'
-        ];
-      } else if (msg.includes('oke') || msg.includes('cảm ơn') || msg.includes('thanks') || msg.includes('vâng')) {
-        suggestions = [
-          'Dạ không có gì ạ! Anh/chị cần thêm thông tin gì cứ nhắn em hỗ trợ bất cứ lúc nào nhé ạ.',
-          'Dạ em cảm ơn anh/chị nhiều ạ! Chúc anh/chị một ngày làm việc thật vui vẻ và may mắn nhé ạ!',
-          'Dạ vâng ạ, em luôn sẵn sàng hỗ trợ anh/chị 24/7 nhé ạ!'
-        ];
-      } else {
-        suggestions = [
-          'Dạ em đã nhận được tin nhắn của anh/chị, em sẽ hỗ trợ mình ngay đây ạ!',
-          'Dạ anh/chị cho em xin thêm chút thông tin để em tư vấn chính xác nhất nhé ạ.',
-          'Dạ vâng ạ, anh/chị đợi em một chút em kiểm tra và phản hồi ngay nhé ạ!'
-        ];
-      }
-    }
-
     return {
-      success: true,
+      success: false,
       contactCategory: persona.category,
       persona,
-      suggestedReplies: suggestions,
+      suggestedReplies: [
+        'AI chưa gen xong (Đang kết nối lại AI...)',
+        'AI chưa gen xong (Vui lòng thử lại sau giây lát)',
+        'AI chưa gen xong'
+      ],
       matchedKnowledge,
-      detectedIntent,
-      recommendedAction: persona.replyMode === 'auto_reply' ? 'auto_reply' : 'copilot_review'
+      detectedIntent: 'Chưa thể tạo câu trả lời',
+      recommendedAction: 'copilot_review',
+      error: errorMessage || 'AI chưa gen xong'
     };
   }
 }
 
 export const geminiService = new GeminiService();
-

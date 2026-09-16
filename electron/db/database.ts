@@ -80,10 +80,15 @@ export class DatabaseManager {
           }
         }
 
+        const loadedContacts: Contact[] = (parsed.contacts || []).map((c: any) => ({
+          ...c,
+          autoReplyEnabled: c.autoReplyEnabled === true ? true : false
+        }));
+
         return {
           settings: loadedSettings,
           personas: loadedPersonas,
-          contacts: parsed.contacts || [],
+          contacts: loadedContacts,
           knowledgeItems: loadedKnowledge,
           chatLogs: parsed.chatLogs || []
         };
@@ -169,8 +174,32 @@ export class DatabaseManager {
   }
 
   public getOrCreateContact(platform: TargetPlatform, name: string, externalId?: string): Contact {
+    const normalize = (s: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
+    const targetNorm = normalize(name);
+
+    if (!targetNorm) {
+      const defaultCat: Contact['category'] = 'customer';
+      const defaultP = this.getPersonaByCategory(defaultCat);
+      return {
+        id: 'contact_transient',
+        platform,
+        externalId: '',
+        name: '',
+        category: defaultCat,
+        personaId: defaultP.id,
+        autoReplyEnabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+    }
+
     const existing = this.data.contacts.find(
-      c => c.platform === platform && (c.name.toLowerCase() === name.toLowerCase() || (externalId && c.externalId === externalId))
+      c => c.platform === platform && (
+        normalize(c.name) === targetNorm ||
+        (targetNorm.length >= 3 && normalize(c.name).includes(targetNorm)) ||
+        (normalize(c.name).length >= 3 && targetNorm.includes(normalize(c.name))) ||
+        (externalId && c.externalId === externalId)
+      )
     );
     if (existing) {
       return existing;
@@ -184,7 +213,13 @@ export class DatabaseManager {
     if (lowerName.includes('trọng') || lowerName.includes('tino')) {
       defaultCategory = 'friend';
       assignedPersonaId = 'persona_tino_trong';
-    } else if (lowerName.includes('bạn') || lowerName.includes('em') || lowerName.includes('bro') || lowerName.includes('kỳ') || lowerName.includes('hoàng') || lowerName.includes('long') || lowerName.includes('anh') || lowerName.includes('tuấn') || lowerName.includes('quân')) {
+    } else if (lowerName.includes('tạ quang minh') || lowerName.includes('quang minh') || lowerName.includes('chip') || lowerName.includes('minh')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_ta_quang_minh';
+    } else if (lowerName.includes('nguyễn duy quân') || lowerName.includes('duy quân') || lowerName.includes('dzy.wuan') || lowerName.includes('quân')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_nguyen_duy_quan';
+    } else if (lowerName.includes('bạn') || lowerName.includes('em') || lowerName.includes('bro') || lowerName.includes('kỳ') || lowerName.includes('hoàng') || lowerName.includes('long') || lowerName.includes('anh') || lowerName.includes('tuấn')) {
       defaultCategory = 'friend';
     } else if (lowerName.includes('nv') || lowerName.includes('team') || lowerName.includes('nhân viên') || lowerName.includes('dev') || lowerName.includes('kế toán')) {
       defaultCategory = 'employee';
@@ -201,7 +236,7 @@ export class DatabaseManager {
       name,
       category: defaultCategory,
       personaId: defaultPersona.id,
-      autoReplyEnabled: true,
+      autoReplyEnabled: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -216,7 +251,9 @@ export class DatabaseManager {
     const targetPersonaId = personaId || this.getPersonaByCategory(category).id;
     contact.category = category;
     contact.personaId = targetPersonaId;
-    contact.autoReplyEnabled = true;
+    if (contact.autoReplyEnabled === undefined) {
+      contact.autoReplyEnabled = false;
+    }
     contact.updatedAt = new Date().toISOString();
     this.saveDatabase();
     return contact;

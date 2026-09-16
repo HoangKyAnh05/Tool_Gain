@@ -17,7 +17,8 @@ import {
   Server,
   Globe,
   Terminal,
-  HelpCircle
+  HelpCircle,
+  Trash2
 } from 'lucide-react';
 import { AIProvider } from '../types';
 
@@ -45,6 +46,26 @@ export const SettingsView: React.FC = () => {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [isRestarting, setIsRestarting] = useState<boolean>(false);
+  const [isClearingCache, setIsClearingCache] = useState<boolean>(false);
+  const [clearCacheMsg, setClearCacheMsg] = useState<string | null>(null);
+
+  const handleClearCache = async () => {
+    if (confirm('Bạn có muốn xóa toàn bộ bộ nhớ đệm (Cache) và các file lưu trữ tạm để làm nhẹ ứng dụng không?\n\n(Tài khoản đang đăng nhập Messenger / Zalo / Telegram vẫn được giữ nguyên không bị đăng xuất).')) {
+      setIsClearingCache(true);
+      setClearCacheMsg(null);
+      try {
+        if (window.electronAPI?.clearAppCache) {
+          const res = await window.electronAPI.clearAppCache();
+          setClearCacheMsg(`Đã giải phóng thành công ${res.mbFreed} MB bộ nhớ cache & file tạm!`);
+          setTimeout(() => setClearCacheMsg(null), 6000);
+        }
+      } catch (err: any) {
+        setClearCacheMsg(`Lỗi khi dọn dẹp cache: ${err?.message || err}`);
+      } finally {
+        setIsClearingCache(false);
+      }
+    }
+  };
 
   const handleTestConnection = async () => {
     setTestingConnection(true);
@@ -558,6 +579,49 @@ export const SettingsView: React.FC = () => {
           >
             {sound ? 'Đang bật' : 'Đã tắt'}
           </button>
+        </div>
+      </div>
+
+      {/* Storage & Cache Management Card */}
+      <div className="bg-surface-900 border border-surface-800 rounded-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Dọn dẹp Cache & Làm nhẹ Ứng dụng</h3>
+              <p className="text-xs text-slate-400">Xóa bỏ bộ nhớ đệm, tệp log và shader tích tụ của trình duyệt Chromium</p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleClearCache}
+            disabled={isClearingCache}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-md shadow-rose-600/20 cursor-pointer disabled:opacity-50"
+          >
+            <Trash2 className={`w-4 h-4 ${isClearingCache ? 'animate-spin' : ''}`} />
+            <span>{isClearingCache ? 'Đang dọn dẹp cache...' : 'Xóa toàn bộ Cache & Tệp rác'}</span>
+          </button>
+        </div>
+
+        <div className="bg-surface-950/60 rounded-xl p-4 border border-surface-800/80 text-xs text-slate-400 space-y-2">
+          <div className="flex items-center gap-2 text-slate-300 font-semibold">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>Bảo toàn dữ liệu đăng nhập an toàn:</span>
+          </div>
+          <ul className="list-disc list-inside space-y-1 text-slate-400 ml-1">
+            <li>Dọn dẹp các thư mục <code className="text-rose-300 bg-rose-950/40 px-1 py-0.5 rounded">Cache</code>, <code className="text-rose-300 bg-rose-950/40 px-1 py-0.5 rounded">GPUCache</code>, <code className="text-rose-300 bg-rose-950/40 px-1 py-0.5 rounded">Code Cache</code>, <code className="text-rose-300 bg-rose-950/40 px-1 py-0.5 rounded">ShaderCache</code>, <code className="text-rose-300 bg-rose-950/40 px-1 py-0.5 rounded">Crashpad</code>.</li>
+            <li><strong className="text-emerald-400">Không bị mất đăng nhập</strong>: Cookie và Local Storage của Messenger, Zalo và Telegram vẫn được bảo vệ nguyên vẹn.</li>
+            <li>Khuyên dùng khi thấy ứng dụng chạy nặng, ngốn nhiều RAM hoặc dung lượng ổ cứng tăng cao.</li>
+          </ul>
+
+          {clearCacheMsg && (
+            <div className="mt-3 p-3 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-medium animate-fade-in flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <span>{clearCacheMsg}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

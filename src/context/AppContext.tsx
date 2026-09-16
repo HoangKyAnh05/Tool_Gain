@@ -53,7 +53,10 @@ interface AppContextType {
   sendSimulatorContactMessage: (contactName: string, text: string, category: ContactCategory) => Promise<void>;
   handleActiveChatScanned: (platform: TargetPlatform, contactName: string, recentMessages: Array<{ sender: string; text: string }>, incomingMessage?: string) => Promise<void>;
   handleMessageSelected: (platform: TargetPlatform, contactName: string, messageText: string, recentMessages?: Array<{ sender: string; text: string }>) => Promise<void>;
+  selectCustomMessage: (messageText: string) => Promise<void>;
   setContactCategory: (platform: TargetPlatform, contactName: string, category: ContactCategory, personaId?: string) => Promise<void>;
+  handleUserMessage: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
+  autoReplyStatusNotice: string;
   clearSimulatorHistory: () => void;
 }
 
@@ -61,7 +64,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeTab, setActiveTab] = useState<NavTab>('simulator');
+  const [activeTab, setActiveTab] = useState<NavTab>('messenger');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -71,6 +74,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeTimers, setActiveTimers] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [apiKeyValid, setApiKeyValid] = useState<boolean | null>(null);
+  const [autoReplyStatusNotice, setAutoReplyStatusNotice] = useState<string>('');
 
   // Simulator Message List
   const [simulatorMessages, setSimulatorMessages] = useState<SimulatorMessage[]>([
@@ -122,67 +126,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshAll();
   }, [refreshAll]);
 
-  // Listen to Electron Events
-  useEffect(() => {
-    if (!window.electronAPI) return;
 
-    const unsubSuggestion = window.electronAPI.onNewSuggestion((data: SuggestionEventData) => {
-      console.log('[New Suggestion Event]:', data);
-      setCurrentSuggestion(data);
-    });
-
-    const unsubTick = window.electronAPI.onAutoReplyTick((data) => {
-      setActiveTimers(prev => ({
-        ...prev,
-        [data.key]: data.remainingSeconds
-      }));
-
-      // If finished countdown
-      if (data.remainingSeconds <= 0) {
-        setActiveTimers(prev => {
-          const next = { ...prev };
-          delete next[data.key];
-          return next;
-        });
-      }
-    });
-
-    const unsubCancelled = window.electronAPI.onAutoReplyCancelled((data) => {
-      setActiveTimers(prev => {
-        const next = { ...prev };
-        delete next[data.key];
-        return next;
-      });
-    });
-
-    const unsubDispatch = window.electronAPI.onDispatchSendToWebview((data) => {
-      console.log('[Dispatch Send]:', data);
-      // If on simulator platform, append to simulator chat
-      if (data.platform === 'simulator') {
-        setSimulatorMessages(prev => [
-          ...prev,
-          {
-            id: `msg_${Date.now()}`,
-            sender: 'assistant',
-            senderName: 'AI Copilot',
-            text: data.text,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            status: data.isAuto ? 'auto_sent' : 'sent'
-          }
-        ]);
-      }
-      refreshAll();
-    });
-
-    return () => {
-      unsubSuggestion();
-      unsubTick();
-      unsubCancelled();
-      unsubDispatch();
-    };
-  }, [refreshAll]);
 
   // Actions
+  const handleUserMessage = async (platform: TargetPlatform, contactName: string, text: string) => {
+    if (!window.electronAPI?.handleUserMessage) return;
+    await window.electronAPI.handleUserMessage(platform, contactName, text);
+  };
   const updateSettings = async (updates: Partial<AppSettings>) => {
     if (!window.electronAPI) return;
     const updated = await window.electronAPI.updateSettings(updates);
@@ -333,29 +283,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     lastRecentMessagesRef.current = recentMessages;
     
+    // Auto-create or fetch contact from DB so it's guaranteed to exist in database
+    try {
+      await window.electronAPI.getOrCreateContact(platform, contactName);
+    } catch (e) {}
+
     // Auto-resolve persona and category
     const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
-    const matchedContact = contacts.find(c => normalizeName(c.name) === normalizeName(contactName));
+    const matchedContact = contacts.find(c => {
+      const cNorm = normalizeName(c.name);
+      const targetNorm = normalizeName(contactName);
+      if (!cNorm || !targetNorm) return false;
+      return c.platform === platform && (
+        cNorm === targetNorm ||
+        (targetNorm.length >= 3 && cNorm.includes(targetNorm)) ||
+        (cNorm.length >= 3 && targetNorm.includes(cNorm))
+      );
+    });
     const personaId = matchedContact?.personaId;
-    const defaultPersona = personas.find(p => p.id === personaId) || personas[0];
+    const defaultPersona = personas.find(p => p.id === personaId) || (matchedContact ? personas.find(p => p.category === matchedContact.category && p.isDefault) : null) || personas[0];
     const cat = matchedContact?.category || defaultPersona?.category || 'customer';
 
-    // Immediately update active contact and display in Copilot without auto-filling or auto-generating
+    const incomingOnly = recentMessages.filter(m => m.sender === 'contact');
+    const detectedIncoming = _incomingMessage || (incomingOnly.length > 0 ? incomingOnly[incomingOnly.length - 1].text : '');
+
+    // Immediately update active contact and display in Copilot
     setCurrentSuggestion(prev => {
       const isSameContact = Boolean(prev?.contactName && normalizeName(prev.contactName) === normalizeName(contactName));
-      const preservedIncoming = isSameContact ? (prev?.incomingMessage || '') : '';
+      const preservedIncoming = detectedIncoming || (isSameContact ? prev?.incomingMessage : '') || '';
 
       return {
         platform,
         contactName,
         contactCategory: (isSameContact && prev) ? prev.contactCategory : cat,
         incomingMessage: preservedIncoming,
-        replyResponse: (isSameContact && prev?.replyResponse) ? prev.replyResponse : {
+        replyResponse: (isSameContact && prev?.replyResponse && prev.replyResponse.suggestedReplies.length > 0) ? prev.replyResponse : {
           success: true,
           contactCategory: cat,
           persona: defaultPersona,
           suggestedReplies: [],
-          detectedIntent: preservedIncoming ? 'Đã chọn tin nhắn' : 'Chưa chọn tin nhắn',
+          detectedIntent: preservedIncoming ? 'Đã nhận diện tin nhắn' : 'Đang mở cuộc trò chuyện',
           matchedKnowledge: [],
           recommendedAction: 'copilot_review'
         },
@@ -363,6 +330,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         scheduledDelay: 0
       };
     });
+
+    // Auto-generate suggestions if we have an incoming message and not already generated
+    if (detectedIncoming) {
+      const cacheKey = `${platform}_${contactName}_${detectedIncoming}`;
+      if (lastProcessedKeyRef.current !== cacheKey) {
+        lastProcessedKeyRef.current = cacheKey;
+        try {
+          await regenerateReply(platform, contactName, detectedIncoming, personaId);
+        } catch (e) {}
+      }
+    }
   };
 
   const handleMessageSelected = async (
@@ -371,44 +349,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     messageText: string,
     recentMessages: Array<{ sender: string; text: string }> = []
   ) => {
-    if (!contactName || !messageText) return;
+    if (!messageText || !messageText.trim()) return;
 
-    console.log(`[handleMessageSelected] User clicked message: "${messageText}" for "${contactName}"`);
+    const resolvedContact = (contactName && contactName.trim()) ? contactName.trim() : 'Hội thoại đang mở';
+
+    console.log(`[handleMessageSelected] User clicked message: "${messageText}" for "${resolvedContact}"`);
     if (recentMessages.length > 0) {
       lastRecentMessagesRef.current = recentMessages;
     }
 
+    // Auto-create contact in DB if needed
+    try {
+      if (window.electronAPI?.getOrCreateContact && resolvedContact !== 'Hội thoại đang mở') {
+        await window.electronAPI.getOrCreateContact(platform, resolvedContact);
+      }
+    } catch (e) {}
+
     // Auto-resolve persona
     const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
-    const matchedContact = contacts.find(c => normalizeName(c.name) === normalizeName(contactName));
+    const matchedContact = contacts.find(c => {
+      const cNorm = normalizeName(c.name);
+      const targetNorm = normalizeName(resolvedContact);
+      if (!cNorm || !targetNorm) return false;
+      return c.platform === platform && (
+        cNorm === targetNorm ||
+        (targetNorm.length >= 3 && cNorm.includes(targetNorm)) ||
+        (cNorm.length >= 3 && targetNorm.includes(cNorm))
+      );
+    });
     const personaId = matchedContact?.personaId;
-    const defaultPersona = personas.find(p => p.id === personaId) || personas[0];
+    const defaultPersona = personas.find(p => p.id === personaId) || (matchedContact ? personas.find(p => p.category === matchedContact.category && p.isDefault) : null) || personas[0];
     const cat = matchedContact?.category || defaultPersona?.category || 'customer';
 
-    // Update current selected message and clear previous suggestions until user clicks "Tạo lại"
-    setCurrentSuggestion(prev => {
-      const isSameContact = Boolean(prev?.contactName && normalizeName(prev.contactName) === normalizeName(contactName));
-      const activeCat = (isSameContact && prev) ? prev.contactCategory : cat;
-      const activePersona = (isSameContact && prev?.replyResponse?.persona) ? prev.replyResponse.persona : defaultPersona;
-
-      return {
-        platform,
-        contactName,
-        contactCategory: activeCat,
-        incomingMessage: messageText,
-        replyResponse: {
-          success: true,
-          contactCategory: activeCat,
-          persona: activePersona,
-          suggestedReplies: [],
-          detectedIntent: 'Đã chọn tin nhắn • Bấm "Tạo lại" để sinh phản hồi',
-          matchedKnowledge: [],
-          recommendedAction: 'copilot_review'
-        },
-        isAutoReplyScheduled: false,
-        scheduledDelay: 0
-      };
+    // Immediately display clicked message
+    setCurrentSuggestion({
+      platform,
+      contactName: resolvedContact,
+      contactCategory: cat,
+      incomingMessage: messageText,
+      replyResponse: {
+        success: true,
+        contactCategory: cat,
+        persona: defaultPersona,
+        suggestedReplies: [],
+        detectedIntent: 'Đang tạo phản hồi thông minh...',
+        matchedKnowledge: [],
+        recommendedAction: 'copilot_review'
+      },
+      isAutoReplyScheduled: false,
+      scheduledDelay: 0
     });
+
+    // Immediately generate suggestions for this clicked message
+    try {
+      await regenerateReply(platform, resolvedContact, messageText, personaId);
+    } catch (err) {
+      console.warn('Error generating reply on message select:', err);
+    }
+  };
+
+
+  const selectCustomMessage = async (messageText: string) => {
+    if (!messageText || !messageText.trim()) return;
+    const targetPlatform = currentSuggestion?.platform || 'messenger';
+    const targetContact = (currentSuggestion?.contactName && currentSuggestion.contactName !== 'Chưa chọn cuộc trò chuyện')
+      ? currentSuggestion.contactName
+      : 'Hội thoại đang mở';
+    await handleMessageSelected(targetPlatform, targetContact, messageText.trim());
   };
 
   const setContactCategory = async (
@@ -417,22 +424,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     category: ContactCategory,
     personaId?: string
   ) => {
-    if (!window.electronAPI || !contactName) return;
+    if (!window.electronAPI) return;
     const targetPersona = personaId ? personas.find(p => p.id === personaId) : (personas.find(p => p.category === category && p.isDefault) || personas[0]);
 
-    if (window.electronAPI.saveContactCategory) {
-      await window.electronAPI.saveContactCategory(platform, contactName, category, targetPersona?.id);
+    if (contactName && contactName.trim() && window.electronAPI.saveContactCategory) {
+      await window.electronAPI.saveContactCategory(platform, contactName.trim(), category, targetPersona?.id);
     }
     
-    setCurrentSuggestion(prev => prev ? {
-      ...prev,
-      contactCategory: category,
-      replyResponse: prev.replyResponse ? {
-        ...prev.replyResponse,
+    setCurrentSuggestion(prev => {
+      if (prev) {
+        return {
+          ...prev,
+          contactCategory: category,
+          replyResponse: prev.replyResponse ? {
+            ...prev.replyResponse,
+            contactCategory: category,
+            persona: targetPersona || prev.replyResponse.persona
+          } : {
+            success: true,
+            contactCategory: category,
+            persona: targetPersona || personas[0],
+            suggestedReplies: [],
+            detectedIntent: category === 'friend' ? 'Bạn bè trò chuyện' : 'Yêu cầu tư vấn',
+            matchedKnowledge: [],
+            recommendedAction: 'copilot_review'
+          }
+        };
+      }
+      return {
+        platform,
+        contactName: contactName || '',
         contactCategory: category,
-        persona: targetPersona || prev.replyResponse.persona
-      } : prev.replyResponse
-    } : null);
+        incomingMessage: '',
+        replyResponse: {
+          success: true,
+          contactCategory: category,
+          persona: targetPersona || personas[0],
+          suggestedReplies: [],
+          detectedIntent: category === 'friend' ? 'Bạn bè trò chuyện' : 'Yêu cầu tư vấn',
+          matchedKnowledge: [],
+          recommendedAction: 'copilot_review'
+        },
+        isAutoReplyScheduled: false,
+        scheduledDelay: 0
+      };
+    });
 
     await refreshAll();
   };
@@ -440,6 +476,100 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearSimulatorHistory = () => {
     setSimulatorMessages([]);
   };
+
+  // Listen to Electron Events
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const unsubSuggestion = window.electronAPI.onNewSuggestion((data: SuggestionEventData) => {
+      console.log('[New Suggestion Event]:', data);
+      setCurrentSuggestion(data);
+    });
+
+    const unsubTick = window.electronAPI.onAutoReplyTick((data) => {
+      setActiveTimers(prev => ({
+        ...prev,
+        [data.key]: data.remainingSeconds
+      }));
+
+      // If finished countdown
+      if (data.remainingSeconds <= 0) {
+        setActiveTimers(prev => {
+          const next = { ...prev };
+          delete next[data.key];
+          return next;
+        });
+      }
+    });
+
+    const unsubCancelled = window.electronAPI.onAutoReplyCancelled((data) => {
+      setActiveTimers(prev => {
+        const next = { ...prev };
+        delete next[data.key];
+        return next;
+      });
+    });
+
+    const unsubDispatch = window.electronAPI.onDispatchSendToWebview((data) => {
+      console.log('[Dispatch Send]:', data);
+      // If on simulator platform, append to simulator chat
+      if (data.platform === 'simulator') {
+        setSimulatorMessages(prev => [
+          ...prev,
+          {
+            id: `msg_${Date.now()}`,
+            sender: 'assistant',
+            senderName: 'AI Copilot',
+            text: data.text,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            status: data.isAuto ? 'auto_sent' : 'sent'
+          }
+        ]);
+      }
+      refreshAll();
+    });
+
+    const unsubGlobalToggled = window.electronAPI?.onAutoReplyGlobalToggled?.((data: { globalAutoReply: boolean; reason: string }) => {
+      console.log('[Auto-Reply Global Toggled Event]:', data);
+      setSettings(prev => prev ? { ...prev, globalAutoReply: data.globalAutoReply } : prev);
+      setAutoReplyStatusNotice(data.reason);
+      setTimeout(() => setAutoReplyStatusNotice(''), 6000);
+    });
+
+    const unsubMessageClicked = window.electronAPI?.onMessageClicked?.((data) => {
+      console.log('[AppContext Bridge] Message clicked:', data);
+      if (data && data.messageText) {
+        handleMessageSelected(
+          data.platform,
+          data.contactName || 'Hội thoại đang mở',
+          data.messageText,
+          data.recentMessages || []
+        );
+      }
+    });
+
+    const unsubChatUpdate = window.electronAPI?.onChatUpdate?.((data) => {
+      console.log('[AppContext Bridge] Chat update:', data);
+      if (data && data.contactName) {
+        handleActiveChatScanned(
+          data.platform,
+          data.contactName,
+          data.recentMessages || [],
+          data.lastIncomingMessage
+        );
+      }
+    });
+
+    return () => {
+      unsubSuggestion();
+      unsubTick();
+      unsubCancelled();
+      unsubDispatch();
+      if (unsubGlobalToggled) unsubGlobalToggled();
+      if (unsubMessageClicked) unsubMessageClicked();
+      if (unsubChatUpdate) unsubChatUpdate();
+    };
+  }, [refreshAll, handleMessageSelected, handleActiveChatScanned]);
 
   return (
     <AppContext.Provider
@@ -472,7 +602,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sendSimulatorContactMessage,
         handleActiveChatScanned,
         handleMessageSelected,
+        selectCustomMessage,
         setContactCategory,
+        handleUserMessage,
+        autoReplyStatusNotice,
         clearSimulatorHistory
       }}
     >

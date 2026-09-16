@@ -47,7 +47,9 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     approveAndSendReply,
     fillChatInput,
     regenerateReply,
-    setContactCategory
+    setContactCategory,
+    autoReplyStatusNotice,
+    selectCustomMessage
   } = useApp();
 
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -56,43 +58,54 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   const [editText, setEditText] = useState<string>('');
   const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
   const [customPrompt, setCustomPrompt] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState<ContactCategory | null>(null);
+  const [isInputtingMessage, setIsInputtingMessage] = useState<boolean>(false);
+  const [manualInputText, setManualInputText] = useState<string>('');
+  const [contactAutoReplyMap, setContactAutoReplyMap] = useState<Record<string, boolean>>({});
+  const [contactCategoryMap, setContactCategoryMap] = useState<Record<string, ContactCategory>>({});
+  const [contactPersonaMap, setContactPersonaMap] = useState<Record<string, string>>({});
 
   const normalizeName = (s?: string) => (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
 
-  const isContactMatching =
-    !activeContactName ||
-    !currentSuggestion?.contactName ||
-    normalizeName(activeContactName) === normalizeName(currentSuggestion.contactName) ||
-    normalizeName(activeContactName).includes(normalizeName(currentSuggestion.contactName)) ||
-    normalizeName(currentSuggestion.contactName).includes(normalizeName(activeContactName));
-
   const contactName = activeContactName || currentSuggestion?.contactName || '';
-  const matchedContact = contacts.find(c => normalizeName(c.name) === normalizeName(contactName));
+  const contactKey = `${platform}_${normalizeName(contactName)}`;
 
-  const contactCategory =
-    selectedCategory ||
+  const matchedContact = contacts.find(c => {
+    const cNorm = normalizeName(c.name);
+    const targetNorm = normalizeName(contactName);
+    if (!cNorm || !targetNorm) return false;
+    return c.platform === platform && (
+      cNorm === targetNorm ||
+      (targetNorm.length >= 3 && cNorm.includes(targetNorm)) ||
+      (cNorm.length >= 3 && targetNorm.includes(cNorm))
+    );
+  });
+
+  const contactCategory: ContactCategory =
+    contactCategoryMap[contactKey] ||
     matchedContact?.category ||
-    (isContactMatching && currentSuggestion?.contactCategory) ||
+    currentSuggestion?.contactCategory ||
     'customer';
 
   const hasActiveChat = Boolean(contactName && contactName.trim().length > 0 && contactName !== 'Đang chờ chọn tin nhắn');
   const displayName = hasActiveChat ? contactName : 'Chưa chọn cuộc trò chuyện';
 
-  // Reset local override only when switching to a completely different contact
-  useEffect(() => {
-    setSelectedCategory(null);
-  }, [contactName]);
-
   const timerKey = `${platform}_${contactName}`;
   const remainingSeconds = activeTimers[timerKey] ?? 0;
   const isCountingDown = remainingSeconds > 0;
 
+  const currentPersonaId =
+    contactPersonaMap[contactKey] ||
+    matchedContact?.personaId;
+
   const currentPersona =
-    personas.find(p => p.id === matchedContact?.personaId) ||
+    (currentPersonaId ? personas.find(p => p.id === currentPersonaId) : null) ||
     personas.find(p => p.category === contactCategory && p.isDefault) ||
     personas.find(p => p.category === contactCategory) ||
     personas[0];
+
+  const isAutoReplyChecked = contactAutoReplyMap[contactKey] !== undefined
+    ? contactAutoReplyMap[contactKey]
+    : (matchedContact ? Boolean(matchedContact.autoReplyEnabled) : true);
 
   const aiModelDisplayName =
     settings?.aiProvider === 'groq'
@@ -101,17 +114,17 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
       ? `Gemini (${settings?.geminiModel || '3.7 Flash'})`
       : `Google AI (${settings?.geminiModel || '2.0 Flash'})`;
 
+
   const hasAISuggestions = Boolean(
-    isContactMatching &&
     currentSuggestion?.replyResponse?.suggestedReplies &&
     currentSuggestion.replyResponse.suggestedReplies.length > 0
   );
 
   const suggestions = hasAISuggestions ? currentSuggestion!.replyResponse.suggestedReplies : [];
 
-  const matchedKnowledge = (isContactMatching && currentSuggestion?.replyResponse?.matchedKnowledge) || [];
-  const detectedIntent = (isContactMatching && currentSuggestion?.replyResponse?.detectedIntent) || (contactCategory === 'friend' ? 'Bạn bè trò chuyện' : 'Yêu cầu tư vấn');
-  const incomingMsgDisplay = (isContactMatching && currentSuggestion?.incomingMessage) || undefined;
+  const matchedKnowledge = currentSuggestion?.replyResponse?.matchedKnowledge || [];
+  const detectedIntent = currentSuggestion?.replyResponse?.detectedIntent || (contactCategory === 'friend' ? 'Bạn bè trò chuyện' : 'Yêu cầu tư vấn');
+  const incomingMsgDisplay = currentSuggestion?.incomingMessage || undefined;
 
   const handleCopy = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
@@ -142,19 +155,87 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   };
 
   const handleCategoryChange = async (newCategory: ContactCategory) => {
-    setSelectedCategory(newCategory);
-    const targetPersona = personas.find(p => p.category === newCategory && p.isDefault) || personas[0];
+    setContactCategoryMap(prev => ({ ...prev, [contactKey]: newCategory }));
+    const targetPersona =
+      personas.find(p => p.category === newCategory && p.isDefault) ||
+      personas.find(p => p.category === newCategory) ||
+      personas[0];
 
-    // Persist permanently
-    await setContactCategory(platform, contactName, newCategory, targetPersona.id);
+    if (targetPersona) {
+      setContactPersonaMap(prev => ({ ...prev, [contactKey]: targetPersona.id }));
+    }
 
-    // Trigger regenerate with new category and persona
-    const msg = currentSuggestion?.incomingMessage || 'Xin chào bạn nhé';
+    // Persist permanently if contactName is present
+    if (contactName && contactName.trim()) {
+      await setContactCategory(platform, contactName.trim(), newCategory, targetPersona?.id);
+    }
+
+    // Trigger regenerate if there is a selected/incoming message
+    const msg = incomingMsgDisplay || currentSuggestion?.incomingMessage;
+    if (msg && contactName) {
+      setIsRegenerating(true);
+      try {
+        await regenerateReply(platform, contactName, msg, targetPersona?.id);
+      } catch (e) {
+        console.warn('Regenerate on category change error:', e);
+      } finally {
+        setIsRegenerating(false);
+      }
+    }
+  };
+
+  const handlePersonaChange = async (targetPersonaId: string) => {
+    setContactPersonaMap(prev => ({ ...prev, [contactKey]: targetPersonaId }));
+    const selected = personas.find(p => p.id === targetPersonaId);
+    if (selected) {
+      setContactCategoryMap(prev => ({ ...prev, [contactKey]: selected.category }));
+      if (contactName && contactName.trim()) {
+        await setContactCategory(platform, contactName.trim(), selected.category, selected.id);
+      }
+      const msg = incomingMsgDisplay || currentSuggestion?.incomingMessage;
+      if (msg && contactName) {
+        setIsRegenerating(true);
+        try {
+          await regenerateReply(platform, contactName, msg, selected.id);
+        } catch (e) {
+          console.warn('Regenerate on persona change error:', e);
+        } finally {
+          setIsRegenerating(false);
+        }
+      }
+    }
+  };
+
+  const handleToggleAutoReply = async (checked: boolean) => {
+    setContactAutoReplyMap(prev => ({ ...prev, [contactKey]: checked }));
+    if (matchedContact) {
+      await updateContact(matchedContact.id, { autoReplyEnabled: checked });
+    } else if (contactName && contactName.trim()) {
+      if (window.electronAPI?.getOrCreateContact) {
+        const contact = await window.electronAPI.getOrCreateContact(platform, contactName.trim());
+        if (contact) {
+          await updateContact(contact.id, { autoReplyEnabled: checked });
+        }
+      }
+    }
+  };
+
+  const handleInstantAutoReply = async () => {
+    const targetName = contactName || 'Đoạn chat đang mở';
+    const targetMsg = currentSuggestion?.incomingMessage || 'Tin nhắn mới nhất';
     setIsRegenerating(true);
     try {
-      await regenerateReply(platform, contactName, msg, targetPersona.id);
+      await fetch('http://127.0.0.1:45678/api/trigger-incoming', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact: targetName,
+          message: targetMsg,
+          platform
+        })
+      });
     } catch (e) {
-      console.warn('Regenerate on category change error:', e);
+      console.warn('Instant auto-reply failed:', e);
     } finally {
       setIsRegenerating(false);
     }
@@ -171,6 +252,46 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
       await regenerateReply(platform, contactName, promptToUse, currentPersona?.id);
     } finally {
       setIsRegenerating(false);
+    }
+  };
+
+  const handleRegenerateAndSend = async (overridePrompt?: string) => {
+    setIsRegenerating(true);
+    try {
+      const msg = currentSuggestion?.incomingMessage || 'Xin chào bạn nhé';
+      const promptContext = (overridePrompt !== undefined ? overridePrompt : customPrompt).trim();
+      const promptToUse = promptContext
+        ? `${msg}\n[NGỮ CẢNH / HƯỚNG TRẢ LỜI CỦA TÔI: ${promptContext}]`
+        : msg;
+      const res = await regenerateReply(platform, contactName, promptToUse, currentPersona?.id);
+      if (res && res.suggestedReplies && res.suggestedReplies.length > 0) {
+        const defaultOptIndex = settings?.defaultAutoReplyOption ? settings.defaultAutoReplyOption - 1 : 0;
+        const chosenText = res.suggestedReplies[defaultOptIndex] || res.suggestedReplies[0];
+        await approveAndSendReply(platform, contactName, chosenText);
+      }
+    } catch (err) {
+      console.error('Error in handleRegenerateAndSend:', err);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim()) {
+        await selectCustomMessage(text.trim());
+      }
+    } catch (err) {
+      console.warn('Clipboard read error:', err);
+    }
+  };
+
+  const handleSubmitManualMessage = async () => {
+    if (manualInputText && manualInputText.trim()) {
+      await selectCustomMessage(manualInputText.trim());
+      setManualInputText('');
+      setIsInputtingMessage(false);
     }
   };
 
@@ -204,6 +325,48 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               {platform.toUpperCase()}
             </span>
           </div>
+        </div>
+
+        {/* Master Global Auto-Reply Switch */}
+        <div className={`mb-3 p-2 rounded-xl border flex items-center justify-between transition-all ${
+          settings?.globalAutoReply
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            : 'bg-surface-900 border-amber-500/30 text-slate-300'
+        }`}>
+          <div className="flex items-center gap-2">
+            <Zap className={`w-4 h-4 ${settings?.globalAutoReply ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
+            <div>
+              <div className="text-[11px] font-bold flex items-center gap-1.5">
+                <span>Auto-Reply Tổng:</span>
+                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                  settings?.globalAutoReply
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : 'bg-amber-500/20 text-amber-300'
+                }`}>
+                  {settings?.globalAutoReply ? 'ĐANG BẬT' : 'ĐÃ TẮT'}
+                </span>
+              </div>
+              <div className="text-[9.5px] text-slate-400">
+                Gõ <code className="text-amber-300 font-mono">.</code> để tắt, gõ <code className="text-emerald-300 font-mono">...</code> để bật
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              const next = !settings?.globalAutoReply;
+              await updateSettings({ globalAutoReply: next });
+              if (window.electronAPI?.handleUserMessage) {
+                await window.electronAPI.handleUserMessage(platform, contactName, next ? '...' : '.');
+              }
+            }}
+            className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer shadow-sm ${
+              settings?.globalAutoReply
+                ? 'bg-surface-800 text-rose-300 hover:bg-rose-500/20 border border-surface-700 hover:border-rose-500/30'
+                : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold shadow-emerald-500/20'
+            }`}
+          >
+            {settings?.globalAutoReply ? 'Tắt' : 'Bật ngay'}
+          </button>
         </div>
 
         {/* Contact Info & Classification */}
@@ -254,13 +417,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             <div className="relative max-w-[190px]">
               <select
                 value={currentPersona?.id || 'persona_friend'}
-                onChange={async (e) => {
-                  const targetPersonaId = e.target.value;
-                  const selected = personas.find(p => p.id === targetPersonaId);
-                  if (selected) {
-                    await setContactCategory(platform, contactName, selected.category, selected.id);
-                  }
-                }}
+                onChange={(e) => handlePersonaChange(e.target.value)}
                 className="w-full text-[10.5px] font-semibold bg-surface-950 text-brand-300 px-2 py-1 rounded-lg border border-surface-700 appearance-none pr-5 cursor-pointer outline-none hover:border-brand-500/50 truncate"
               >
                 {personas.map((p) => (
@@ -272,8 +429,53 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               <ChevronDown className="w-3 h-3 absolute right-1.5 top-2 pointer-events-none text-slate-400" />
             </div>
           </div>
+
+          {/* Per-Chat Auto-Reply Ticking Checkbox */}
+          <div className="pt-2 border-t border-surface-700/40 flex items-center justify-between">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isAutoReplyChecked}
+                onChange={(e) => handleToggleAutoReply(e.target.checked)}
+                className="w-4 h-4 rounded text-brand-600 bg-surface-950 border-surface-700 focus:ring-brand-500 cursor-pointer accent-brand-500"
+              />
+              <span className="text-[11px] font-semibold text-slate-200">
+                Tích chọn Auto-Reply cho chat này
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={() => handleToggleAutoReply(!isAutoReplyChecked)}
+              className={`text-[10px] px-2 py-0.5 rounded-full font-bold cursor-pointer transition-all ${
+                isAutoReplyChecked
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
+                  : 'bg-surface-950 text-slate-400 border border-surface-750 hover:border-slate-500'
+              }`}
+            >
+              {isAutoReplyChecked ? '✓ Đã tích' : 'Chưa tích'}
+            </button>
+          </div>
+
+          {/* Instant Auto-Reply Button */}
+          <button
+            type="button"
+            onClick={handleInstantAutoReply}
+            disabled={isRegenerating}
+            className="mt-2.5 w-full py-1.5 px-3 rounded-lg text-[11px] font-bold bg-gradient-to-r from-purple-600 via-indigo-600 to-brand-600 hover:from-purple-500 hover:to-brand-500 text-white shadow-md hover:shadow-purple-500/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 border border-purple-400/30"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+            <span>{isRegenerating ? 'Đang tạo & gửi tin...' : '⚡ Kích hoạt Auto-Reply cho tin này ngay'}</span>
+          </button>
         </div>
       </div>
+
+      {/* Auto-Reply Global Notice Banner (Triggered by '.' or '...') */}
+      {autoReplyStatusNotice && (
+        <div className="p-2.5 bg-brand-500/20 border-b border-brand-500/40 text-xs font-semibold text-brand-200 flex items-center gap-2 animate-fade-in">
+          <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{autoReplyStatusNotice}</span>
+        </div>
+      )}
 
       {/* Auto-Reply Countdown Banner */}
       {isCountingDown && (
@@ -303,6 +505,17 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Critical Decision Notice if detected */}
+        {currentSuggestion?.replyResponse?.detectedIntent?.includes('quyết định') && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2.5 shadow-sm">
+            <span className="text-base shrink-0 mt-0.5">⚠️</span>
+            <div className="leading-relaxed">
+              <strong className="block text-rose-200 font-bold mb-0.5">Tin nhắn cần bạn tự ra quyết định!</strong>
+              <span className="text-[11px] text-slate-300">Nội dung liên quan đến tiền bạc / lịch học / cam kết quan trọng. AI tự động trả lời hoãn binh để bạn cân nhắc và không tự ý quyết định thay bạn.</span>
+            </div>
+          </div>
+        )}
+
         {/* API Warning Notice if any */}
         {currentSuggestion?.replyResponse?.error && (
           <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 flex items-start gap-2">
@@ -314,41 +527,121 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         )}
 
         {/* Selected Message & Knowledge Badge */}
-        <div className="flex items-start justify-between gap-2">
-          <div
-            onClick={incomingMsgDisplay ? () => handleRegenerate() : undefined}
-            className={`flex-1 min-w-0 flex items-start gap-2.5 text-xs bg-surface-850 px-3 py-2 rounded-lg border border-surface-750 transition-all ${
-              incomingMsgDisplay ? 'cursor-pointer hover:border-brand-500/50 hover:bg-surface-800' : ''
-            }`}
-            title={incomingMsgDisplay ? 'Nhấp để tạo lại gợi ý cho tin nhắn này' : 'Nhấp vào bất kỳ tin nhắn nào trong khung chat để chọn'}
-          >
-            <MessageSquare className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${isRegenerating ? 'text-brand-400 animate-pulse' : 'text-brand-400'}`} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between mb-0.5">
-                <span className="text-slate-400 text-[10.5px] font-semibold block">Tin nhắn đã chọn:</span>
-                {incomingMsgDisplay && (
-                  <span className="text-[10px] text-brand-400/80 font-medium">Click để tạo lại</span>
-                )}
-              </div>
-              <p className="text-slate-200 font-medium text-[11.5px] leading-relaxed line-clamp-3 break-words">
-                {incomingMsgDisplay ? (
-                  `"${incomingMsgDisplay}"`
-                ) : (
-                  <span className="text-slate-500 italic">Click vào tin nhắn bất kỳ trong chat để chọn...</span>
-                )}
-              </p>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-300">
+              <MessageSquare className="w-3.5 h-3.5 text-brand-400" />
+              <span>Tin nhắn đã chọn:</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handlePasteClipboard}
+                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-brand-500/15 text-brand-300 hover:bg-brand-500/25 border border-brand-500/30 transition-all flex items-center gap-1 cursor-pointer"
+                title="Dán nhanh nội dung từ Clipboard làm tin nhắn cần trả lời"
+              >
+                <Copy className="w-2.5 h-2.5" />
+                <span>Dán Clipboard</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsInputtingMessage(!isInputtingMessage)}
+                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-surface-800 text-slate-300 hover:bg-surface-750 border border-surface-700 transition-all flex items-center gap-1 cursor-pointer"
+                title="Gõ hoặc sửa tin nhắn thủ công"
+              >
+                <Edit3 className="w-2.5 h-2.5" />
+                <span>{isInputtingMessage ? 'Đóng' : 'Nhập tay'}</span>
+              </button>
+              {onManualScan && (
+                <button
+                  type="button"
+                  onClick={onManualScan}
+                  disabled={isScanning}
+                  className="px-2 py-0.5 rounded text-[10px] font-semibold bg-surface-800 text-slate-400 hover:text-slate-200 border border-surface-700 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  title="Quét lại tin nhắn mới nhất trong khung chat"
+                >
+                  <RefreshCw className={`w-2.5 h-2.5 ${isScanning ? 'animate-spin' : ''}`} />
+                  <span>Quét</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {matchedKnowledge.length > 0 && (
-            <div
-              className="flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-500/10 px-2 py-1.5 rounded-lg border border-emerald-500/20 shrink-0 self-start"
-              title={`Khớp ${matchedKnowledge.length} mục tri thức FAQ`}
-            >
-              <Database className="w-3 h-3" />
-              <span>{matchedKnowledge.length} FAQ</span>
+          {/* Manual Input Box (if toggled) */}
+          {isInputtingMessage && (
+            <div className="p-2.5 bg-surface-950 rounded-xl border border-brand-500/40 space-y-2 animate-fade-in shadow-lg">
+              <textarea
+                value={manualInputText}
+                onChange={(e) => setManualInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmitManualMessage();
+                  }
+                }}
+                placeholder="Gõ hoặc dán tin nhắn của khách vào đây rồi nhấn Enter..."
+                rows={2}
+                className="w-full text-xs bg-surface-900 border border-surface-750 rounded-lg p-2 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 font-sans resize-none"
+                autoFocus
+              />
+              <div className="flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsInputtingMessage(false)}
+                  className="px-2.5 py-1 text-[10.5px] rounded-lg text-slate-400 hover:text-slate-200 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmitManualMessage}
+                  disabled={!manualInputText.trim()}
+                  className="px-3 py-1 text-[10.5px] font-bold rounded-lg bg-brand-600 hover:bg-brand-500 text-white disabled:opacity-50 flex items-center gap-1 cursor-pointer shadow-sm shadow-brand-500/20"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-300" />
+                  <span>Tạo 3 gợi ý ngay</span>
+                </button>
+              </div>
             </div>
           )}
+
+          {/* Selected Message Card */}
+          <div className="flex items-start justify-between gap-2">
+            <div
+              onClick={incomingMsgDisplay ? () => handleRegenerate() : undefined}
+              className={`flex-1 min-w-0 flex items-start gap-2.5 text-xs bg-surface-850 px-3 py-2.5 rounded-xl border border-surface-750 transition-all ${
+                incomingMsgDisplay ? 'cursor-pointer hover:border-brand-500/50 hover:bg-surface-800' : ''
+              }`}
+              title={incomingMsgDisplay ? 'Nhấp để tạo lại gợi ý cho tin nhắn này' : 'Nhấp vào bất kỳ tin nhắn nào trong khung chat để chọn'}
+            >
+              <MessageSquare className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${isRegenerating ? 'text-brand-400 animate-pulse' : 'text-brand-400'}`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-slate-400 text-[10.5px] font-semibold block">Nội dung tin nhắn:</span>
+                  {incomingMsgDisplay && (
+                    <span className="text-[10px] text-brand-400/80 font-medium">Click để tạo lại</span>
+                  )}
+                </div>
+                <p className="text-slate-200 font-medium text-[11.5px] leading-relaxed line-clamp-3 break-words">
+                  {incomingMsgDisplay ? (
+                    `"${incomingMsgDisplay}"`
+                  ) : (
+                    <span className="text-slate-500 italic">Click vào tin nhắn bất kỳ trong chat hoặc bấm [Dán Clipboard] / [Nhập tay]...</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {matchedKnowledge.length > 0 && (
+              <div
+                className="flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-500/10 px-2 py-1.5 rounded-lg border border-emerald-500/20 shrink-0 self-start"
+                title={`Khớp ${matchedKnowledge.length} mục tri thức FAQ`}
+              >
+                <Database className="w-3 h-3" />
+                <span>{matchedKnowledge.length} FAQ</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 💡 Dedicated Context / Direction Input Box */}
@@ -387,11 +680,20 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             <button
               onClick={() => handleRegenerate()}
               disabled={isRegenerating || !incomingMsgDisplay}
-              className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer shrink-0"
-              title="Nhấn Enter hoặc bấm nút này để tạo câu trả lời theo đúng ngữ cảnh"
+              className="px-2 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-750 text-slate-200 border border-surface-700 text-xs font-semibold flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer shrink-0"
+              title="Tạo 3 phương án để xem trước và chọn trước khi gửi"
             >
-              <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+              <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'text-amber-400'}`} />
               <span>Tạo</span>
+            </button>
+            <button
+              onClick={() => handleRegenerateAndSend()}
+              disabled={isRegenerating || !incomingMsgDisplay}
+              className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer shrink-0 shadow-sm shadow-brand-500/20"
+              title="AI tự tạo xong và tự động gửi luôn vào Messenger ngay lập tức"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300" />
+              <span>Tạo & Gửi</span>
             </button>
           </div>
 
@@ -477,19 +779,51 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 {incomingMsgDisplay
-                  ? 'Bấm nút bên dưới để AI phân tích và đưa ra 3 phương án trả lời'
-                  : 'Nhấp vào bất kỳ tin nhắn nào trong khung chat'}
+                  ? 'Bấm nút bên dưới để AI phân tích và đưa ra câu trả lời'
+                  : 'Nhấp vào tin nhắn trong khung chat hoặc dán nhanh từ clipboard:'}
               </p>
             </div>
+            {!incomingMsgDisplay && (
+              <div className="flex justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handlePasteClipboard}
+                  className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shadow-brand-500/20"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>📋 Dán từ Clipboard</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsInputtingMessage(true)}
+                  className="px-3 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-750 text-slate-300 font-semibold text-xs border border-surface-700 flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-brand-400" />
+                  <span>✏️ Nhập tay</span>
+                </button>
+              </div>
+            )}
             {incomingMsgDisplay && (
-              <button
-                onClick={() => handleRegenerate()}
-                disabled={isRegenerating}
-                className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-              >
-                <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
-                <span>{isRegenerating ? 'Đang phân tích & tạo câu trả lời...' : '✨ Bấm để AI tạo gợi ý ngay'}</span>
-              </button>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => handleRegenerate()}
+                  disabled={isRegenerating}
+                  className="flex-1 py-2 px-3 rounded-xl bg-surface-800 hover:bg-surface-750 text-slate-200 font-semibold text-xs border border-surface-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  title="Tạo 3 phương án để bạn xem trước"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'text-amber-400'}`} />
+                  <span>{isRegenerating ? 'Đang tạo...' : '✨ Tạo xem trước'}</span>
+                </button>
+                <button
+                  onClick={() => handleRegenerateAndSend()}
+                  disabled={isRegenerating}
+                  className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  title="AI tự tạo và tự gửi luôn vào Messenger"
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-300" />
+                  <span>⚡ Tạo & Gửi luôn</span>
+                </button>
+              </div>
             )}
           </div>
         ) : (

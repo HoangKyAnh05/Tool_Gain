@@ -142,13 +142,19 @@ declare global {
       fillChatInput: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
       simulateIncomingMessage: (platform: TargetPlatform, contactName: string, text: string) => Promise<GenerateReplyResponse>;
       handleIncomingMessage: (platform: TargetPlatform, contactName: string, text: string, recentMessages?: Array<{ sender: string; text: string }>) => Promise<GenerateReplyResponse>;
+      handleUserMessage: (platform: TargetPlatform, contactName: string, text: string) => Promise<void>;
       restartApp: () => Promise<void>;
+      clearAppCache: () => Promise<{ success: boolean; mbFreed: number }>;
       openExternal: (url: string) => Promise<boolean>;
       getWebviewPreloadUrl: () => Promise<string>;
       onNewSuggestion: (callback: (data: SuggestionEventData) => void) => () => void;
       onAutoReplyTick: (callback: (data: AutoReplyTickData) => void) => () => void;
       onAutoReplyCancelled: (callback: (data: { key: string }) => void) => () => void;
+      onAutoReplyGlobalToggled: (callback: (data: { globalAutoReply: boolean; reason: string }) => void) => () => void;
       onDispatchSendToWebview: (callback: (data: { platform: TargetPlatform; contactName: string; text: string; isAuto: boolean; insertOnly?: boolean }) => void) => () => void;
+      onMessageClicked: (callback: (data: { platform: TargetPlatform; contactName: string; messageText: string; recentMessages?: Array<{ sender: string; text: string }> }) => void) => () => void;
+      onChatUpdate: (callback: (data: { platform: TargetPlatform; contactName: string; recentMessages: Array<{ sender: string; text: string }>; lastIncomingMessage?: string; isNewIncoming?: boolean }) => void) => () => void;
+      onSwitchChat: (callback: (data: { contactName: string }) => void) => () => void;
     };
   }
 }

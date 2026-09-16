@@ -50,9 +50,12 @@ const electronAPI = {
     ipcRenderer.invoke('simulator:incoming-message', { platform, contactName, text }),
   handleIncomingMessage: (platform: TargetPlatform, contactName: string, text: string, recentMessages?: Array<{ sender: string; text: string }>): Promise<GenerateReplyResponse> =>
     ipcRenderer.invoke('autoreply:handle-incoming', { platform, contactName, messageText: text, recentMessages }),
+  handleUserMessage: (platform: TargetPlatform, contactName: string, text: string): Promise<void> =>
+    ipcRenderer.invoke('autoreply:user-message', { platform, contactName, text }),
 
   // System Lifecycle & Shell
   restartApp: (): Promise<void> => ipcRenderer.invoke('app:restart'),
+  clearAppCache: (): Promise<{ success: boolean; mbFreed: number }> => ipcRenderer.invoke('app:clear-cache'),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:open-external', url),
   getWebviewPreloadUrl: (): Promise<string> => ipcRenderer.invoke('app:get-webview-preload-url'),
 
@@ -72,10 +75,30 @@ const electronAPI = {
     ipcRenderer.on('event:auto-reply-cancelled', sub);
     return () => ipcRenderer.removeListener('event:auto-reply-cancelled', sub);
   },
+  onAutoReplyGlobalToggled: (callback: (data: { globalAutoReply: boolean; reason: string }) => void) => {
+    const sub = (_: any, data: any) => callback(data);
+    ipcRenderer.on('event:auto-reply-global-toggled', sub);
+    return () => ipcRenderer.removeListener('event:auto-reply-global-toggled', sub);
+  },
   onDispatchSendToWebview: (callback: (data: any) => void) => {
     const sub = (_: any, data: any) => callback(data);
     ipcRenderer.on('command:dispatch-send-to-webview', sub);
     return () => ipcRenderer.removeListener('command:dispatch-send-to-webview', sub);
+  },
+  onMessageClicked: (callback: (data: any) => void) => {
+    const sub = (_: any, data: any) => callback(data);
+    ipcRenderer.on('event:message-clicked', sub);
+    return () => ipcRenderer.removeListener('event:message-clicked', sub);
+  },
+  onChatUpdate: (callback: (data: any) => void) => {
+    const sub = (_: any, data: any) => callback(data);
+    ipcRenderer.on('event:chat-update', sub);
+    return () => ipcRenderer.removeListener('event:chat-update', sub);
+  },
+  onSwitchChat: (callback: (data: { contactName: string }) => void) => {
+    const sub = (_: any, data: any) => callback(data);
+    ipcRenderer.on('command:switch-chat', sub);
+    return () => ipcRenderer.removeListener('command:switch-chat', sub);
   }
 };
 
