@@ -248,6 +248,14 @@ export class DatabaseManager {
           existing.personaId = 'persona_tino_trong';
           existing.category = 'friend';
           this.saveDatabase();
+        } else if (lowerName.includes('bố') || lowerName === 'ba' || lowerName.includes('bố yêu') || lowerName.includes('papa')) {
+          existing.personaId = 'persona_family_dad';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('mẹ') || lowerName === 'má' || lowerName.includes('mẹ yêu') || lowerName.includes('mama') || lowerName.includes('mom')) {
+          existing.personaId = 'persona_family_mom';
+          existing.category = 'friend';
+          this.saveDatabase();
         }
       }
       return existing;
@@ -258,7 +266,13 @@ export class DatabaseManager {
     let assignedPersonaId: string | undefined = undefined;
     const lowerName = name.toLowerCase();
 
-    if (lowerName.includes('trọng') || lowerName.includes('tino')) {
+    if (lowerName.includes('bố') || lowerName === 'ba' || lowerName.includes('bố yêu') || lowerName.includes('papa')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_family_dad';
+    } else if (lowerName.includes('mẹ') || lowerName === 'má' || lowerName.includes('mẹ yêu') || lowerName.includes('mama') || lowerName.includes('mom')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_family_mom';
+    } else if (lowerName.includes('trọng') || lowerName.includes('tino')) {
       defaultCategory = 'friend';
       assignedPersonaId = 'persona_tino_trong';
     } else if (lowerName.includes('minh trí') || lowerName.includes('minh tri') || lowerName.includes('trí') || lowerName.includes('tri')) {

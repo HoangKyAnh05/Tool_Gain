@@ -51,6 +51,28 @@ const STYLE_PRESETS = {
       { label: '💰 Báo phí & Ưu đãi', ctx: 'Báo học phí ưu đãi, tặng kèm quấn cán/nước và chính sách bảo lưu' }
     ]
   },
+  persona_family_dad: {
+    id: 'persona_family_dad',
+    name: 'Nói với Bố',
+    badge: '👨 Nói với Bố',
+    pills: [
+      { label: '🏠 Báo lịch về quê', ctx: 'Báo lịch cuối tuần hoặc tuần sau con về quê thăm bố mẹ nha bố' },
+      { label: '💼 Báo việc học & đi làm', ctx: 'Báo việc học tập và đi làm ở Hà Nội của con ổn định lắm, bố yên tâm ạ' },
+      { label: '🍲 Hỏi thăm sức khỏe bố', ctx: 'Hỏi thăm bố ăn cơm chưa và dặn bố giữ gìn sức khỏe' },
+      { label: '💸 Báo gửi quà / biếu tiền', ctx: 'Báo con vừa gửi ít đồ / gửi tiền về biếu bố mẹ ạ' }
+    ]
+  },
+  persona_family_mom: {
+    id: 'persona_family_mom',
+    name: 'Nói với Mẹ',
+    badge: '👩 Nói với Mẹ',
+    pills: [
+      { label: '🍚 Báo con ăn no rồi', ctx: 'Báo con ăn cơm no rồi và hỏi bố mẹ ở nhà đã ăn cơm chưa ạ' },
+      { label: '🍲 Khen đồ ăn mẹ gửi', ctx: 'Khen đồ ăn mẹ gửi ngon lắm và dặn mẹ món ngon khi con về quê' },
+      { label: '❤️ Dặn mẹ ngủ sớm giữ sức khỏe', ctx: 'Dặn mẹ làm việc vừa thôi và tối nhớ ngủ sớm giữ gìn sức khỏe mẹ nha ❤️' },
+      { label: '🏠 Báo lịch về quê với mẹ', ctx: 'Báo cuối tuần này con về thăm mẹ, nhớ mẹ quá ❤️' }
+    ]
+  },
   persona_shop_customer: {
     id: 'persona_shop_customer',
     name: 'Khách Mua Sắm',
@@ -761,6 +783,12 @@ function createFloatingPanel() {
           </button>
           <button class="__ai_style_btn" data-persona="persona_boss_work" title="Làm việc với Sếp / Đối tác: chuyên nghiệp, tiến độ">
             <span>👔</span> <span>Với Sếp / Đối tác</span>
+          </button>
+          <button class="__ai_style_btn" data-persona="persona_family_dad" title="Nói chuyện với Bố: hiếu thảo, lễ phép, báo cáo việc học & việc làm, hỏi thăm sức khỏe">
+            <span>👨</span> <span>Nói với Bố</span>
+          </button>
+          <button class="__ai_style_btn" data-persona="persona_family_mom" title="Nói chuyện với Mẹ: tình cảm, ấm áp, khen đồ ăn mẹ gửi, dặn mẹ ngủ sớm">
+            <span>👩</span> <span>Nói với Mẹ</span>
           </button>
           <button class="__ai_style_btn" data-persona="persona_badminton_client" title="Khách học cầu lông: tư vấn kỹ thuật, xếp lịch sân">
             <span>🏸</span> <span>Khách Cầu Lông</span>

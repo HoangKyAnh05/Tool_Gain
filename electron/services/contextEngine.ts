@@ -70,6 +70,16 @@ export class ContextEngine {
 
     const personas = db.getPersonas();
 
+    // 0. Family special mappings (Bố, Mẹ, Ba, Má, Mama, Papa)
+    if (['bo', 'ba', 'boyeu', 'papa', 'phuhuynh', 'bobo', 'boiu'].some(k => normName === k || normName.startsWith(k) || normName.includes(k))) {
+      const dad = personas.find(p => p.id === 'persona_family_dad');
+      if (dad) return dad;
+    }
+    if (['me', 'mama', 'meyeu', 'ma', 'meiu', 'mom', 'meme', 'maimi'].some(k => normName === k || normName.startsWith(k) || normName.includes(k))) {
+      const mom = personas.find(p => p.id === 'persona_family_mom');
+      if (mom) return mom;
+    }
+
     // 1. Direct match by persona ID
     for (const p of personas) {
       const normId = this.normalizeString(p.id.replace('persona_', ''));

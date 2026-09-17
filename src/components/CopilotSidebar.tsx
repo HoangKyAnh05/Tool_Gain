@@ -332,6 +332,8 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-300 font-semibold border border-brand-500/30">
               {currentPersona?.id === 'persona_flirt_crush' ? '💋 Gái Xinh' :
                currentPersona?.id === 'persona_boss_work' ? '👔 Với Sếp' :
+               currentPersona?.id === 'persona_family_dad' ? '👨 Nói với Bố' :
+               currentPersona?.id === 'persona_family_mom' ? '👩 Nói với Mẹ' :
                currentPersona?.id === 'persona_badminton_client' ? '🏸 Cầu Lông' :
                currentPersona?.id === 'persona_shop_customer' ? '🛍️ Mua Sắm' :
                `🎯 Tự động${customPersonaForContact ? `: ${customPersonaForContact.name.split('(')[0].trim()}` : ''}`}
@@ -363,6 +365,32 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             >
               <span>👔</span>
               <span className="truncate">Với Sếp / Đối tác</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePersonaChange('persona_family_dad')}
+              className={`py-1.5 px-2 rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                currentPersona?.id === 'persona_family_dad'
+                  ? 'bg-gradient-to-r from-sky-500/30 to-blue-600/30 border-sky-400 text-white shadow-sm shadow-sky-500/20'
+                  : 'bg-surface-950/60 hover:bg-surface-800 text-slate-300 border-surface-700 hover:border-sky-500/40'
+              }`}
+            >
+              <span>👨</span>
+              <span className="truncate">Nói với Bố</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePersonaChange('persona_family_mom')}
+              className={`py-1.5 px-2 rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                currentPersona?.id === 'persona_family_mom'
+                  ? 'bg-gradient-to-r from-rose-500/30 to-red-500/30 border-rose-400 text-white shadow-sm shadow-rose-500/20'
+                  : 'bg-surface-950/60 hover:bg-surface-800 text-slate-300 border-surface-700 hover:border-rose-500/40'
+              }`}
+            >
+              <span>👩</span>
+              <span className="truncate">Nói với Mẹ</span>
             </button>
 
             <button
