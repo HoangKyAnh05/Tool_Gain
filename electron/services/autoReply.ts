@@ -112,28 +112,9 @@ export class AutoReplyManager {
     const optionIndex = Math.max(0, Math.min(2, ((settings.defaultAutoReplyOption || 1) - 1)));
     const chosenReply = replyResponse.suggestedReplies[optionIndex] || replyResponse.suggestedReplies[0] || '';
 
-    // STRICT RULES FOR AUTO-REPLY:
-    // 1. Global Auto-Reply must be ON (not paused by '.')
-    // 2. The specific chat must be TICKED / CHECKED (contact.autoReplyEnabled === true)
-    // 3. AI MUST have successfully generated reply (NEVER auto-reply with 'AI chưa gen xong'!)
-    const isGlobalOn = settings.globalAutoReply !== false;
-    const isChatTicked = Boolean(contact.autoReplyEnabled);
-    const isAiSuccess = Boolean(replyResponse.success) && Boolean(chosenReply) && !chosenReply.includes('AI chưa gen xong');
-    const isAutoReplyAllowed = isGlobalOn && isChatTicked && isAiSuccess;
+    console.log(`[AutoReply Manager] handleIncomingMessage for "${contactName}": "${messageText}" -> Manual sending mode (Copilot only)`);
 
-    console.log(`[AutoReply Manager] handleIncomingMessage for "${contactName}": "${messageText}" | GlobalOn: ${isGlobalOn} | ChatTicked: ${isChatTicked} | AiSuccess: ${isAiSuccess} | Allowed: ${isAutoReplyAllowed} | ExecuteLocalSend: ${executeLocalSend}`);
-
-    if (isAutoReplyAllowed && executeLocalSend) {
-      const delay = Math.max(1, settings.autoReplyMinDelay || 2);
-      console.log(`[AutoReply Manager] >>> SCHEDULING AUTO-REPLY for "${contactName}" in ${delay}s: "${chosenReply}"`);
-      this.scheduleAutoReply(platform, contactName, messageText, chosenReply, delay);
-    } else if (!executeLocalSend) {
-      console.log(`[AutoReply Manager] Auto-Reply delegated to Chrome extension for "${contactName}" (Allowed: ${isAutoReplyAllowed})`);
-    } else {
-      console.log(`[AutoReply Manager] Auto-Reply NOT allowed for "${contactName}" (isGlobalOn=${isGlobalOn}, isChatTicked=${isChatTicked}, isAiSuccess=${isAiSuccess})`);
-    }
-
-    // Broadcast new suggestion event to UI
+    // Broadcast new suggestion event to UI (Manual mode only)
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send('event:new-suggestion', {
         platform,
@@ -141,10 +122,10 @@ export class AutoReplyManager {
         contactCategory: replyResponse.contactCategory,
         incomingMessage: messageText,
         replyResponse,
-        isAutoReplyScheduled: isAutoReplyAllowed,
-        scheduledDelay: isAutoReplyAllowed ? (settings.autoReplyMinDelay || 2) : 0,
-        isChatTicked,
-        isGlobalOn
+        isAutoReplyScheduled: false,
+        scheduledDelay: 0,
+        isChatTicked: false,
+        isGlobalOn: false
       });
     }
 
@@ -152,7 +133,7 @@ export class AutoReplyManager {
   }
 
   /**
-   * Schedule auto-reply with countdown ticks
+   * Schedule auto-reply with countdown ticks (Disabled: user sends manually)
    */
   public scheduleAutoReply(
     platform: TargetPlatform,
@@ -161,45 +142,8 @@ export class AutoReplyManager {
     replyText: string,
     delaySeconds: number
   ) {
-    const key = `${platform}_${contactName}`;
-    this.cancelPending(key);
-
-    const pendingId = `pending_${Date.now()}`;
-    let remaining = Math.max(1, delaySeconds);
-
-    const pendingItem: PendingAutoReply = {
-      id: pendingId,
-      platform,
-      contactName,
-      messageText,
-      chosenReply: replyText,
-      remainingSeconds: remaining,
-      timer: null
-    };
-
-    const interval = setInterval(() => {
-      remaining -= 1;
-      pendingItem.remainingSeconds = remaining;
-
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('event:auto-reply-tick', {
-          key,
-          pendingId,
-          remainingSeconds: remaining,
-          platform,
-          contactName
-        });
-      }
-
-      if (remaining <= 0) {
-        clearInterval(interval);
-        this.activePendingReplies.delete(key);
-        this.executeSend(platform, contactName, replyText, true);
-      }
-    }, 1000);
-
-    pendingItem.timer = interval;
-    this.activePendingReplies.set(key, pendingItem);
+    // Disabled: All automatic sending has been removed. User chooses and sends manually.
+    console.log(`[AutoReply Manager] scheduleAutoReply skipped for "${contactName}" (Manual sending mode)`);
   }
 
   /**

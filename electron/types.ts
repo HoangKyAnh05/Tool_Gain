@@ -85,6 +85,7 @@ export interface GenerateReplyRequest {
   recentMessages: Array<{ sender: string; text: string; time?: string }>;
   currentMessage: string;
   personaId?: string;
+  contextHint?: string;
 }
 
 export interface GenerateReplyResponse {

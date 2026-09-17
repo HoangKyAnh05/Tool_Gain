@@ -3,11 +3,8 @@ import { useApp } from '../context/AppContext';
 import {
   Bot,
   Sparkles,
-  Zap,
   ShieldCheck,
   AlertCircle,
-  ToggleLeft,
-  ToggleRight,
   Database,
   Users,
   RotateCcw,
@@ -16,11 +13,10 @@ import {
 } from 'lucide-react';
 
 export const TopHeader: React.FC = () => {
-  const { settings, updateSettings, personas, knowledgeItems, contacts, activeTimers, setActiveTab } = useApp();
+  const { settings, personas, knowledgeItems, contacts, activeTimers, setActiveTab } = useApp();
   const [isRestarting, setIsRestarting] = useState<boolean>(false);
   const [isClearingCache, setIsClearingCache] = useState<boolean>(false);
 
-  const isGlobalAuto = settings?.globalAutoReply ?? true;
   const timerCount = Object.keys(activeTimers).length;
   const hasApiKey = Boolean(settings?.geminiApiKey);
 
@@ -172,33 +168,15 @@ export const TopHeader: React.FC = () => {
         </div>
 
 
-        {/* Global Auto-Reply Switch */}
-        <button
-          onClick={async () => {
-            const next = !isGlobalAuto;
-            await updateSettings({ globalAutoReply: next });
-            if (window.electronAPI?.handleUserMessage) {
-              await window.electronAPI.handleUserMessage('messenger', '', next ? '...' : '.');
-            }
-          }}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 border cursor-pointer ${
-            isGlobalAuto
-              ? 'bg-brand-600/20 border-brand-500/40 text-brand-200 hover:bg-brand-600/30'
-              : 'bg-surface-800 border-surface-700 text-slate-400 hover:text-slate-200'
-          }`}
-          title="Bật/Tắt chế độ tự động trả lời toàn cục"
+        {/* AI Copilot Mode Badge */}
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-purple-500/15 to-brand-500/15 border border-purple-500/30 text-purple-300"
+          title="Chế độ Trợ lý AI: Tự động gợi ý câu trả lời, bạn bấm chọn để gửi"
         >
-          <Zap className={`w-3.5 h-3.5 ${isGlobalAuto ? 'text-brand-400' : 'text-slate-500'}`} />
-          <span>Auto-Reply:</span>
-          <span className={`font-bold ${isGlobalAuto ? 'text-emerald-400' : 'text-slate-500'}`}>
-            {isGlobalAuto ? 'BẬT' : 'TẮT'}
-          </span>
-          {isGlobalAuto ? (
-            <ToggleRight className="w-4 h-4 text-emerald-400" />
-          ) : (
-            <ToggleLeft className="w-4 h-4 text-slate-500" />
-          )}
-        </button>
+          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+          <span>AI Copilot:</span>
+          <span className="font-bold text-emerald-400">Gợi ý & Gửi thủ công</span>
+        </div>
       </div>
     </header>
   );

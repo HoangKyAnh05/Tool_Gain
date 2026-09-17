@@ -1,28 +1,75 @@
 /**
- * AI Copilot & Auto-Reply Extension for Facebook & Messenger Web
+ * AI Copilot Assistant Extension for Facebook & Messenger Web
  * Embedded In-Chat UI & Floating Control Panel
- * Cross-Chat Unread Thread Scanner & Shorthand Commands (. and ...)
+ * Exclusively Manual Send: AI Generates Suggestions -> User Selects & Sends
  * Connects directly to local AI Omnichannel Assistant at http://127.0.0.1:45678
  */
 
-const LOCAL_API = 'http://127.0.0.1:45678';
+let LOCAL_API = 'http://127.0.0.1:45678';
+const CANDIDATE_PORTS = [45678, 45679, 45680];
 let isConnected = false;
-let globalAutoReply = true;
-let autoSendOnClick = localStorage.getItem('__ai_auto_send_on_click') === 'true'; // Default FALSE (view suggestions only)
-let tickedContactsCache = [];
-let lastTickedFetchTime = 0;
 let activeSelectedContact = '';
 let activeSelectedMessage = '';
 let activeReplies = [];
 let isPanelOpen = false;
-let defaultAutoReplyOption = parseInt(localStorage.getItem('__ai_default_auto_reply_opt') || '1', 10);
-let lastSidebarRepliedSnippets = {};
 let isSwitchingChat = false;
 let isSending = false;
 let lastKnownContact = '';
+let activeSelectedPersonaId = '';
 
-// Track existing last message for each contact to NEVER auto-reply to old chat history!
-const lastSeenIncomingPerContact = {};
+const STYLE_PRESETS = {
+  persona_flirt_crush: {
+    id: 'persona_flirt_crush',
+    name: 'Gái Xinh / Crush',
+    badge: '💋 Gái Xinh',
+    pills: [
+      { label: '💖 Thả thính & Khen ngợi', ctx: 'Thả thính tinh tế, khen ngợi có gu độc đáo khiến nàng thích thú' },
+      { label: '☕ Rủ đi cafe / Đi chơi', ctx: 'Mở lời rủ đi cafe hoặc đi chơi cực kỳ tự nhiên, dùng câu hỏi lựa chọn giả định' },
+      { label: '😏 Cà khịa trêu đùa (Push-Pull)', ctx: 'Trêu đùa tinh tế, kéo đẩy cảm xúc, cà khịa duyên dáng khiến nàng rung rinh' },
+      { label: '🔥 Đẩy cảm xúc mê mệt', ctx: 'Đẩy cảm xúc ngọt ngào, tạo sự tò mò bí ẩn khiến nàng mê mệt và muốn nhắn tiếp' }
+    ]
+  },
+  persona_boss_work: {
+    id: 'persona_boss_work',
+    name: 'Với Sếp / Đối tác',
+    badge: '👔 Báo Cáo Sếp',
+    pills: [
+      { label: '📋 Báo cáo tiến độ', ctx: 'Báo cáo tiến độ công việc ngắn gọn 3 ý: đã làm gì, kết quả, bước tiếp theo' },
+      { label: '✅ Nhận việc & Cam kết', ctx: 'Xác nhận đã hiểu rõ yêu cầu và cam kết deadline cụ thể gửi Sếp duyệt' },
+      { label: '💡 Đề xuất phương án', ctx: 'Báo cáo vướng mắc kèm 2 phương án xử lý tối ưu để Sếp lựa chọn' },
+      { label: '🙏 Xin phép khéo léo', ctx: 'Lễ phép xin phép với lý do chính đáng và đề xuất bù đắp công việc' }
+    ]
+  },
+  persona_badminton_client: {
+    id: 'persona_badminton_client',
+    name: 'Khách Cầu Lông',
+    badge: '🏸 Khách Cầu Lông',
+    pills: [
+      { label: '🏸 Tư vấn khóa học', ctx: 'Tư vấn lộ trình học cầu lông bài bản, cam kết sửa kỹ thuật ve trái tay/bộ chân' },
+      { label: '⏰ Xếp lịch sân tập', ctx: 'Xếp lịch khung giờ và sân bãi thuận tiện nhất (sân K+, CTA, Bao Cáp, Gamma)' },
+      { label: '💪 Mời test trình độ', ctx: 'Mời qua sân giao lưu test thử cảm giác cầu buổi đầu hoàn toàn thoải mái' },
+      { label: '💰 Báo phí & Ưu đãi', ctx: 'Báo học phí ưu đãi, tặng kèm quấn cán/nước và chính sách bảo lưu' }
+    ]
+  },
+  persona_shop_customer: {
+    id: 'persona_shop_customer',
+    name: 'Khách Mua Sắm',
+    badge: '🛍️ Khách Mua Sắm',
+    pills: [
+      { label: '👟 Tư vấn size & form', ctx: 'Hỏi chiều cao/cân nặng/size chân để tư vấn form chuẩn và gửi ảnh thật' },
+      { label: '💰 Báo giá & Freeship', ctx: 'Báo giá hữu nghị xưởng order cao cấp và ưu đãi freeship trong ngày' },
+      { label: '📦 Cam kết kiểm tra COD', ctx: 'Cam kết nhận hàng kiểm tra trước khi trả tiền (COD), đổi size trong 7 ngày' },
+      { label: '🎁 Chốt đơn giữ hàng', ctx: 'Khéo léo xin địa chỉ và SĐT để lên đơn giữ size số lượng có hạn' }
+    ]
+  }
+};
+
+const DEFAULT_PILLS = [
+  { label: '+ Đồng ý chốt lịch', ctx: 'Đồng ý, chốt luôn lịch' },
+  { label: '+ Hẹn tối mai', ctx: 'Hẹn lại vào tối mai' },
+  { label: '+ Từ chối khéo', ctx: 'Từ chối khéo léo, lịch sự' },
+  { label: '+ Hỏi chi tiết', ctx: 'Hỏi thêm chi tiết' }
+];
 
 console.log('[AI Copilot Extension] Initializing UI overlay on:', window.location.hostname);
 
@@ -86,16 +133,6 @@ if (!document.getElementById(STYLE_ID)) {
       background: linear-gradient(135deg, #9333ea, #6366f1);
       color: #ffffff;
       box-shadow: 0 2px 8px rgba(147, 51, 234, 0.4);
-    }
-    .__ai_btn_auto_on {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: #ffffff;
-      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
-    }
-    .__ai_btn_auto_off {
-      background: rgba(51, 65, 85, 0.8);
-      color: #94a3b8;
-      border: 1px solid rgba(148, 163, 184, 0.2);
     }
     .__ai_suggestions_row {
       display: flex;
@@ -193,327 +230,196 @@ if (!document.getElementById(STYLE_ID)) {
       overflow-y: auto;
       max-height: 560px;
     }
-    .__ai_context_pill {
-      font-size: 10.5px;
-      padding: 4px 8px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 12px;
-      color: #94a3b8;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .__ai_context_pill:hover {
-      background: rgba(168, 85, 247, 0.25);
-      border-color: #a855f7;
-      color: #e2e8f0;
-    }
     .__ai_card {
-      background: rgba(30, 41, 59, 0.65);
-      border: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 10px;
       padding: 10px;
+      transition: all 0.2s ease;
     }
-    .__ai_opt_choice_btn {
+    .__ai_card:hover {
+      border-color: rgba(168, 85, 247, 0.3);
+    }
+    .__ai_style_btn {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      justify-content: center;
-      padding: 6px 4px;
-      background: rgba(51, 65, 85, 0.5);
+      gap: 6px;
+      padding: 8px 10px;
+      background: rgba(15, 23, 42, 0.7);
       border: 1px solid rgba(148, 163, 184, 0.2);
       border-radius: 8px;
+      color: #cbd5e1;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: left;
+    }
+    .__ai_style_btn:hover {
+      background: rgba(147, 51, 234, 0.15);
+      border-color: #c084fc;
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+    .__ai_style_btn.active {
+      background: linear-gradient(135deg, rgba(147, 51, 234, 0.35), rgba(79, 70, 229, 0.35));
+      border-color: #ec4899;
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(236, 72, 153, 0.25);
+    }
+    .__ai_context_pill {
+      font-size: 10px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
       color: #94a3b8;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.15s ease;
     }
-    .__ai_opt_choice_btn.active {
-      background: linear-gradient(135deg, rgba(147, 51, 234, 0.35), rgba(99, 102, 241, 0.35));
+    .__ai_context_pill:hover {
       border-color: #a855f7;
-      color: #ffffff;
-      box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+      color: #f1f5f9;
+      background: rgba(147, 51, 234, 0.2);
     }
-
-    /* Floating Toast Notification */
     .__ai_toast {
       position: fixed;
       top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 99999999;
-      padding: 10px 18px;
+      right: 20px;
       background: rgba(15, 23, 42, 0.95);
-      border: 1px solid #a855f7;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(168, 85, 247, 0.4);
-      border-radius: 24px;
-      font-size: 12.5px;
-      font-weight: 600;
-      color: #ffffff;
-      backdrop-filter: blur(8px);
+      color: #f8fafc;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 12px;
+      border-left: 4px solid #a855f7;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      z-index: 100000000;
       pointer-events: none;
-      animation: __ai_fade_in 0.3s ease forwards;
-    }
-    @keyframes __ai_fade_in {
-      from { opacity: 0; transform: translate(-50%, -10px); }
-      to { opacity: 1; transform: translate(-50%, 0); }
+      transition: all 0.3s ease;
+      backdrop-filter: blur(8px);
     }
   `;
   document.head.appendChild(style);
 }
 
-// --- FLOATING TOAST NOTIFICATION ---
-function showToast(text, duration = 3000) {
-  const old = document.querySelector('.__ai_toast');
-  if (old) old.remove();
+// --- TOAST NOTIFICATIONS ---
+function showToast(message, duration = 3000) {
+  const existing = document.querySelector('.__ai_toast');
+  if (existing) existing.remove();
 
   const toast = document.createElement('div');
   toast.className = '__ai_toast';
-  toast.innerHTML = text;
+  toast.innerHTML = message;
   document.body.appendChild(toast);
 
   setTimeout(() => {
-    toast.style.transition = 'opacity 0.4s ease';
     toast.style.opacity = '0';
-    setTimeout(() => toast.remove(), 400);
+    toast.style.transform = 'translateY(-10px)';
+    setTimeout(() => toast.remove(), 300);
   }, duration);
 }
 
-// --- NOISE & CONTEXT MENU FILTER ---
-function isNoiseOrTimestamp(text) {
-  if (!text) return true;
-  const s = text.trim().toLowerCase();
-  if (s.length === 0) return true;
-  if (/^(\d{1,2}:\d{2}(\s*(am|pm|ch|sa))?)$/i.test(s)) return true;
-  if (/^(đã gửi|đã nhận|đã xem|seen|delivered|sent|vừa xong|just now|active now|đang hoạt động|hoạt động\s+\d+.*)$/i.test(s)) return true;
-  if (/^\d+\s*(phút|giờ|ngày|giây|m|h|d|s|min|mins|hour|hours)\s*(trước|ago)?$/i.test(s)) return true;
-  if (/^(thứ\s+(hai|ba|tư|năm|sáu|bảy)|chủ nhật|hôm qua|hôm nay)(\s+\d{1,2}:\d{2})?$/i.test(s)) return true;
-  if (/^đã bày tỏ cảm xúc/i.test(s)) return true;
-
-  // Context menu items on Facebook to avoid false clicks
-  if (/^(thu hồi|gỡ|xóa|bạn đã xóa|chỉnh sửa|báo cáo|chuyển tiếp|ghim|trả lời|sao chép|xem bản dịch|tải về|chi tiết|aa|bạn|thích|đoạn chat)$/i.test(s)) return true;
-  return false;
-}
-
-function cleanText(raw) {
-  if (!raw) return '';
-  let t = raw.trim();
-  if (isNoiseOrTimestamp(t)) return '';
-  t = t.replace(/^(nhập,\s*)?(tin nhắn\s+(do|của)|message from)\s+[^:]*gửi lúc[^:]*:/i, '');
-  t = t.replace(/^(nhập,\s*)?(tin nhắn\s+(do|của)|message from)\s+[^:]*:/i, '');
-  t = t.replace(/^(bạn đã gửi|you sent)(\s+lúc[^:]*)?:/i, '');
-  t = t.replace(/\b(thứ\s+(hai|ba|tư|năm|sáu|bảy)|chủ nhật)\s+\d{1,2}:\d{2}(ch|sa|am|pm)?/gi, '');
-  t = t.replace(/\b\d{1,2}:\d{2}\s*(am|pm|ch|sa)?\b/gi, '');
-  t = t.replace(/\b(đã nhận|đã gửi|đã xem|seen|delivered|sent)\b/gi, '');
-  t = t.replace(/\b\d+\s*(phút|giờ|ngày|giây)\s*trước\b/gi, '');
-  t = t.replace(/^\s*[:\d\w]+\s*:\s*/i, '');
-  t = t.trim();
-  if (isNoiseOrTimestamp(t)) return '';
-  return t;
+// --- HELPER UTILITIES ---
+function cleanText(str) {
+  if (!str) return '';
+  return str
+    .replace(/\s+/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
 }
 
 function normalize(s) {
-  return (s || '').toLowerCase().replace(/[\s\-_.,]+/g, '').trim();
+  return (s || '').toLowerCase().replace(/[\s\-_]+/g, '').trim();
 }
 
-function isContactTicked(name) {
-  const norm = normalize(name);
-  if (!norm) return false;
-  return tickedContactsCache.some(t => {
-    const nt = normalize(t);
-    return norm === nt || (norm.length >= 3 && norm.includes(nt)) || (nt.length >= 3 && nt.includes(norm));
-  });
+function isInvalidName(t) {
+  if (!t || t.length < 2) return true;
+  const lower = t.toLowerCase();
+  const blacklist = [
+    'messenger', 'tất cả', 'chưa đọc', 'nhóm', 'đoạn chat', 'hộp thư đến',
+    'đang hoạt động', 'phút', 'giờ', 'hoạt động', 'tìm kiếm', 'search',
+    'bạn đã gửi', 'bạn:', 'thông tin về đoạn chat', 'tùy chỉnh đoạn chat',
+    'file phương tiện', 'quyền riêng tư', 'bắt nhạc', 'ai copilot'
+  ];
+  return blacklist.some(b => lower === b || (lower.startsWith(b) && lower.length < b.length + 3));
 }
 
-function getChatContainerForElement(el) {
-  if (!el) return null;
-  return el.closest('div[role="dialog"], div[data-pagelet*="ChatTab" i], .fbDockChatTab, div[aria-label*="Đoạn chat" i], div[role="main"]');
-}
-
-// Extract contact name from a specific chat container
-function getContactNameForContainer(container) {
-  if (!container || container === document.body) return getActiveContactName();
-  try {
-    const headerCandidates = container.querySelectorAll('h2, [role="heading"], a[role="link"] span, span[dir="auto"], strong');
-    const containerRect = container.getBoundingClientRect();
-    for (const el of headerCandidates) {
-      const elRect = el.getBoundingClientRect();
-      if (elRect.height > 0 && elRect.top - containerRect.top < 90) {
-        const t = (el.textContent || '').trim();
-        const lt = t.toLowerCase();
-        if (t && t.length >= 2 && t.length <= 50 &&
-            !/^(hoạt động|active|messenger|đang hoạt động|cuộc gọi|tìm kiếm|chi tiết|aa|bạn|thông tin|tùy chỉnh|đi đến|useful|bảng feed|tạo tin|thước phim|xác nhận|xóa)/i.test(lt)) {
-          return t.replace(/\.\.\.$/, '').trim();
-        }
+function getActiveContactName() {
+  // 1. Messenger desktop central chat header
+  const header = document.querySelector('div[role="main"] header, [data-pagelet*="ChatTab" i] h2, div[role="dialog"] h2, div[role="banner"] h1, div[role="banner"] h2');
+  if (header) {
+    const textEls = Array.from(header.querySelectorAll('h1, h2, span[dir="auto"], strong, a'));
+    for (const el of textEls) {
+      const text = cleanText(el.textContent || '');
+      if (text && !isInvalidName(text) && !/^\d{1,2}:\d{2}/.test(text) && text.length <= 50) {
+        return text.split('\n')[0].trim();
       }
     }
-  } catch {}
+  }
+
+  // 2. Messenger right-side info panel title
+  const infoPanels = document.querySelectorAll('div[aria-label*="Thông tin" i], div[aria-label*="Conversation Information" i], div[role="complementary"]');
+  for (const panel of infoPanels) {
+    const titleEls = Array.from(panel.querySelectorAll('h1, h2, h3, span[dir="auto"], strong'));
+    for (const el of titleEls) {
+      const text = cleanText(el.textContent || '');
+      if (text && !isInvalidName(text) && text.length <= 50) {
+        return text.split('\n')[0].trim();
+      }
+    }
+  }
+
+  // 3. Active highlighted thread in left sidebar (excluding tabs)
+  const activeThread = document.querySelector('div[role="navigation"] [role="row"][aria-selected="true"], div[role="navigation"] a[aria-current="page"], div[role="grid"] [role="row"][aria-selected="true"], div[data-testid="mwthreadlist"] [aria-selected="true"]');
+  if (activeThread && !activeThread.getAttribute('role')?.includes('tab')) {
+    const nameEl = activeThread.querySelector('span[dir="auto"], h2, strong');
+    if (nameEl) {
+      const name = cleanText(nameEl.textContent || '');
+      if (name && !isInvalidName(name)) return name;
+    }
+  }
+
+  // 4. Fallback to activeSelectedContact
+  return (activeSelectedContact && !isInvalidName(activeSelectedContact)) ? activeSelectedContact : 'Đoạn chat hiện tại';
+}
+
+function getContactNameForContainer(container) {
+  if (!container) return getActiveContactName();
+  const titleEls = Array.from(container.querySelectorAll('h1, h2, span[dir="auto"], strong, .title'));
+  for (const el of titleEls) {
+    const text = cleanText(el.textContent || '');
+    if (text && !isInvalidName(text) && text.length <= 50) {
+      return text.split('\n')[0].trim();
+    }
+  }
   return getActiveContactName();
 }
 
-// Ultra-accurate active contact detection (URL match -> Sidebar active -> Chat Header -> Status sibling -> Right pane)
-function getActiveContactName(container) {
-  try {
-    // 1. If inside a floating chat popup/tab, get from its local header
-    if (container && container !== document.body && container !== document.querySelector('div[role="main"]')) {
-      const headerCandidates = container.querySelectorAll('h2, [role="heading"], a[role="link"] span, span[dir="auto"], strong');
-      for (const el of headerCandidates) {
-        const t = (el.textContent || '').trim();
-        const lt = t.toLowerCase();
-        if (t && t.length >= 2 && t.length <= 50 &&
-            !/^(hoạt động|active|messenger|đang hoạt động|cuộc gọi|tìm kiếm|chi tiết|aa|bạn|thông tin|tùy chỉnh|đi đến|useful|bảng feed|tạo tin)/i.test(lt)) {
-          return t.replace(/\.\.\.$/, '').trim();
-        }
-      }
-    }
-
-    // 2. URL Thread ID mapping: match /messages/t/12345 or /t/12345 in sidebar
-    const urlMatch = window.location.pathname.match(/\/(?:messages\/)?t\/([a-zA-Z0-9._-]+)/);
-    if (urlMatch && urlMatch[1]) {
-      const threadId = urlMatch[1];
-      const matchingLink = document.querySelector(`a[href*="/t/${threadId}"], a[href*="/messages/t/${threadId}"]`);
-      if (matchingLink) {
-        const nameEl = matchingLink.querySelector('span[dir="auto"], h2, strong');
-        const t = cleanText(nameEl?.textContent || '');
-        if (t && t.length >= 2 && !/^\d{1,2}:\d{2}/.test(t)) {
-          return t;
-        }
-      }
-    }
-
-    // 3. Left Sidebar Active Item (aria-current="page" or aria-selected="true")
-    const activeSidebarItem = document.querySelector('div[role="navigation"] [aria-current="page"], a[href*="/t/"][aria-current="page"], a[href*="/messages/t/"][aria-current="page"], [role="row"][aria-selected="true"], [role="row"][aria-current="page"]');
-    if (activeSidebarItem) {
-      const nameEl = activeSidebarItem.querySelector('span[dir="auto"], h2, strong');
-      const t = cleanText(nameEl?.textContent || '');
-      if (t && t.length >= 2 && !/^\d{1,2}:\d{2}/.test(t)) {
-        return t;
-      }
-    }
-
-    // 4. Status sibling inside active chat ("Đang hoạt động" / "Active now" / "Hoạt động ...")
-    const statusEls = Array.from(document.querySelectorAll('span, div')).filter(el => {
-      const t = (el.textContent || '').trim();
-      return /^(đang hoạt động|active now|hoạt động\s+\d+.*|active\s+\d+.*|cuộc gọi\s+.*)$/i.test(t);
-    });
-    for (const st of statusEls) {
-      const mainOrDetails = st.closest('div[role="main"], main, div[aria-label*="Thông tin về đoạn chat" i], div[aria-label*="Conversation Information" i]');
-      if (mainOrDetails) {
-        const parent = st.parentElement;
-        if (parent) {
-          const cand = Array.from(parent.querySelectorAll('h1, h2, h3, a span, span[dir="auto"], span')).filter(c => c !== st && !c.contains(st));
-          for (const c of cand) {
-            const t = (c.textContent || '').trim();
-            const lt = t.toLowerCase();
-            if (t && t.length >= 2 && t.length <= 50 && !/^(đang hoạt động|active|messenger|cuộc gọi|đi đến bảng feed|bảng feed|useful|thông tin)/i.test(lt)) {
-              return t.replace(/\.\.\.$/, '').trim();
-            }
-          }
-        }
-      }
-    }
-
-    // 5. Header near call buttons (phone/video icons) in top middle
-    const main = document.querySelector('div[role="main"], main');
-    if (main) {
-      const callBtn = main.querySelector('[aria-label*="gọi thoại" i], [aria-label*="gọi video" i], [aria-label*="call" i]');
-      if (callBtn) {
-        const headerBar = callBtn.closest('div[style*="height"], div.x1n2onr6, div[role="banner"]') || callBtn.parentElement?.parentElement?.parentElement;
-        if (headerBar) {
-          const names = Array.from(headerBar.querySelectorAll('h1, h2, h3, a span, span[dir="auto"], strong'));
-          for (const el of names) {
-            const t = (el.textContent || '').trim();
-            const lt = t.toLowerCase();
-            if (t && t.length >= 2 && t.length <= 50 && !/^(đang hoạt động|active|cuộc gọi|thông tin|aa|bạn)/i.test(lt)) {
-              return t.replace(/\.\.\.$/, '').trim();
-            }
-          }
-        }
-      }
-
-      // Top elements in main
-      const headerNodes = main.querySelectorAll('h1, h2, h3, a[role="link"] span, span[dir="auto"]');
-      for (const el of headerNodes) {
-        const rect = el.getBoundingClientRect();
-        if (rect.top > 0 && rect.top < 150 && rect.height > 0) {
-          const t = (el.textContent || '').trim();
-          const lt = t.toLowerCase();
-          if (t && t.length >= 2 && t.length <= 50 &&
-              !/^(hoạt động|active|messenger|đang hoạt động|cuộc gọi|tìm kiếm|chi tiết|aa|bạn|thông tin|tùy chỉnh|đi đến)/i.test(lt)) {
-            return t.replace(/\.\.\.$/, '').trim();
-          }
-        }
-      }
-    }
-
-    // 6. Right Details Sidebar
-    const detailsHeader = document.querySelector('div[aria-label*="Thông tin về đoạn chat" i], div[aria-label*="Conversation Information" i]');
-    if (detailsHeader) {
-      const names = Array.from(detailsHeader.querySelectorAll('h2, [role="heading"], a[role="link"] span, span[dir="auto"], strong'));
-      for (const el of names) {
-        const t = (el.textContent || '').trim();
-        const lt = t.toLowerCase();
-        if (t && t.length >= 2 && t.length <= 50 &&
-            !/^(thông tin|đoạn chat|tin nhắn|tìm kiếm|hoạt động|active|cuộc gọi|chi tiết|tùy chỉnh|quyền riêng tư|file phương tiện|ảnh|video|liên kết|thành viên|chủ đề)/i.test(lt)) {
-          return t.replace(/\.\.\.$/, '').trim();
-        }
-      }
-    }
-
-    // 7. Document Title
-    if (document.title) {
-      let title = document.title.replace(/^\(\d+\+?\)\s*/, '').trim();
-      title = title.replace(/\s*[|·\-–—]\s*(Messenger|Facebook|Meta).*$/i, '').trim();
-      title = title.replace(/\s+(đã gửi.*|sent you.*)$/i, '').trim();
-      const lt = title.toLowerCase();
-      if (title && title.length >= 2 && !['messenger', 'facebook', 'chats', 'đoạn chat', 'tin nhắn', 'hộp thư', 'đi đến bảng feed', 'bảng feed', 'tạo tin'].includes(lt) && !lt.startsWith('hoạt động') && !lt.startsWith('active')) {
-        return title;
-      }
-    }
-  } catch {}
-
-  return activeSelectedContact || 'Đoạn chat hiện tại';
+function getChatContainerForElement(el) {
+  return el.closest('div[role="dialog"], div[data-pagelet*="ChatTab" i], .fbDockChatTab, div[aria-label*="Đoạn chat" i], div[role="main"]');
 }
 
 function getLatestIncomingMessage(container) {
-  if (!container) container = document.querySelector('div[role="main"], main') || document.body;
-  const inputEl = findActiveMessageInput(container);
-  let inputTop = window.innerHeight;
-  let chatCenterX = window.innerWidth * 0.5;
+  const root = container || document.querySelector('div[role="main"], div[role="dialog"], [data-pagelet*="ChatTab" i]') || document.body;
+  if (!root) return '';
 
-  if (inputEl) {
-    const inputRect = inputEl.getBoundingClientRect();
-    inputTop = inputRect.top;
-    chatCenterX = inputRect.left + inputRect.width * 0.5;
-  }
-
-  const textNodes = Array.from(container.querySelectorAll('div[dir="auto"], span[dir="auto"], p, span'));
+  const leaves = Array.from(root.querySelectorAll('div[dir="auto"], span[dir="auto"], .bubble-content, .text, .chat-message-text, .message-content, .text-content'));
   const list = [];
 
-  for (const node of textNodes) {
-    if (node.closest('.__ai_chat_bar, #__ai_copilot_panel, #__ai_copilot_ext_badge')) continue;
-    if (node.closest('div[role="textbox"], input, textarea, header, footer')) continue;
-    
-    let isLeaf = true;
-    for (let i = 0; i < node.children.length; i++) {
-      const child = node.children[i];
-      if (child.textContent && child.textContent.trim().length > 0 && child.tagName !== 'IMG' && child.tagName !== 'BR') {
-        isLeaf = false;
-        break;
+  for (const leaf of leaves) {
+    // Exclude outgoing messages
+    if (leaf.closest('[aria-label*="Bạn đã gửi" i], [aria-label*="You sent" i], [aria-label*="Đã gửi" i]')) continue;
+    // Exclude UI controls
+    if (leaf.closest('.__ai_chat_bar, #__ai_copilot_panel, header, [role="banner"], [role="navigation"], form, [role="textbox"], input, textarea')) continue;
+
+    const t = cleanText(leaf.textContent || '');
+    if (t && t.length >= 1 && t.length <= 800) {
+      if (/^\d{1,2}:\d{2}/.test(t)) continue;
+      if (t === 'Đang hoạt động' || t.includes('hoạt động') || t.startsWith('Xem thêm')) continue;
+      const rect = leaf.getBoundingClientRect();
+      if (rect.height > 0 && rect.width > 0) {
+        list.push({ text: t, top: rect.top });
       }
-    }
-    if (!isLeaf) continue;
-
-    const raw = node.textContent?.trim() || '';
-    const text = cleanText(raw);
-    if (!text || text.length < 1 || text.length > 800) continue;
-
-    const rect = node.getBoundingClientRect();
-    if (rect.height === 0 || rect.top > inputTop + 5 || rect.top < 50) continue;
-
-    const isRight = rect.left > chatCenterX;
-    const isSent = Boolean(node.closest('[aria-label*="Bạn đã gửi" i], [aria-label*="You sent" i]'));
-    if (!isRight && !isSent) {
-      list.push({ text, top: rect.top });
     }
   }
 
@@ -611,19 +517,20 @@ function simulateEnter(input) {
 }
 
 // Rock-solid single-execution text insertion & send (No repetition, No duplicate send)
-function insertAndSendText(text, container, autoSend = false) {
+function insertAndSendText(text, container, sendNow = false) {
   if (!text || text.includes('AI chưa gen xong') || isSending) {
     if (text && text.includes('AI chưa gen xong')) {
-      console.warn('[AI Extension] CHẶN TUYỆT ĐỐI: Không gửi tin nhắn vì AI chưa gen xong!');
+      console.warn('[AI Extension] Không thể gửi tin nhắn vì AI chưa gen xong!');
       showToast('⚠️ AI chưa gen xong câu trả lời, vui lòng chờ AI xử lý xong!');
     }
-    if (isSending) console.warn('[AI Extension] Already sending message, skipping duplicate call.');
+    if (isSending) console.warn('[AI Extension] Already executing action, please wait.');
     return false;
   }
 
   const input = findActiveMessageInput(container);
   if (!input) {
     console.warn('[AI Extension] Could not find message input box!');
+    showToast('⚠️ Không tìm thấy ô nhập tin nhắn!');
     return false;
   }
 
@@ -646,8 +553,9 @@ function insertAndSendText(text, container, autoSend = false) {
     input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
 
-    // 3. Send if autoSend is requested
-    if (autoSend) {
+    // 3. Send if user clicked "Gửi ngay"
+    if (sendNow) {
+      showToast(`🚀 Đang gửi: "${text.length > 30 ? text.slice(0, 30) + '...' : text}"`);
       setTimeout(() => {
         const sendBtn = findSendButton(input);
         if (sendBtn) {
@@ -655,12 +563,12 @@ function insertAndSendText(text, container, autoSend = false) {
         } else {
           simulateEnter(input);
         }
-        // Unlock after 1.5 seconds cooldown
         setTimeout(() => {
           isSending = false;
-        }, 1500);
+        }, 1200);
       }, 120);
     } else {
+      showToast(`✍️ Đã chèn vào ô chat! Bạn có thể chỉnh sửa trước khi gửi.`);
       isSending = false;
     }
     return true;
@@ -671,51 +579,12 @@ function insertAndSendText(text, container, autoSend = false) {
   }
 }
 
-// --- SHORTHAND SIGNALS (. AND ...) ---
-async function sendSignal(signalText, contact) {
-  try {
-    const res = await fetch(`${LOCAL_API}/api/signal`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: signalText,
-        contact: contact || getActiveContactName(),
-        platform: 'messenger'
-      })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      globalAutoReply = data.globalAutoReply;
-      updateGlobalUI();
-      if (signalText === '.' || signalText === '..') {
-        showToast('⏸️ <b>ĐÃ TẠM DỪNG Auto-Reply</b> (Nhận diện lệnh ".")');
-      } else {
-        showToast('▶️ <b>ĐÃ BẬT LẠI Auto-Reply</b> cho các đoạn chat đã tích (Lệnh "...")');
-      }
-    }
-  } catch (e) {
-    console.warn('[AI Extension] Signal error:', e);
-  }
-}
-
-// Monitor user keypress for shorthand . and ...
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    const target = e.target;
-    if (target && target.getAttribute('role') === 'textbox' && target.isContentEditable) {
-      const text = (target.textContent || '').trim();
-      if (text === '.' || text === '..') {
-        sendSignal('.', getActiveContactName());
-      } else if (text === '...' || text === '…' || text === '....') {
-        sendSignal('...', getActiveContactName());
-      }
-    }
-  }
-}, true);
-
 // --- API CLIENT ---
-async function requestReplies(contact, message, context = '') {
+async function requestReplies(contact, message, context = '', personaId = '') {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const targetPersonaId = personaId || activeSelectedPersonaId || undefined;
     const res = await fetch(`${LOCAL_API}/api/generate-reply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -723,9 +592,12 @@ async function requestReplies(contact, message, context = '') {
         contact,
         message,
         context,
+        personaId: targetPersonaId,
         platform: 'messenger'
-      })
+      }),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
     if (res.ok) {
       const data = await res.json();
       if (data.suggestedReplies && data.suggestedReplies.length > 0) {
@@ -736,57 +608,10 @@ async function requestReplies(contact, message, context = '') {
     console.warn('[AI Extension] requestReplies error:', err);
   }
   return [
-    'AI chưa gen xong (Đang kết nối lại AI...)',
+    'AI chưa gen xong (Hãy chắc chắn App AI Desktop đang mở)',
     'AI chưa gen xong (Vui lòng thử lại sau giây lát)',
     'AI chưa gen xong'
   ];
-}
-
-async function toggleContactAutoReply(contact, enable) {
-  try {
-    await fetch(`${LOCAL_API}/api/toggle-contact`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact,
-        enabled: enable,
-        platform: 'messenger'
-      })
-    });
-    const norm = normalize(contact);
-    if (enable) {
-      if (!tickedContactsCache.includes(contact)) tickedContactsCache.push(contact);
-    } else {
-      tickedContactsCache = tickedContactsCache.filter(c => normalize(c) !== norm);
-    }
-  } catch (e) {
-    console.warn('[AI Extension] toggleContactAutoReply error:', e);
-  }
-}
-
-async function setGlobalAutoReply(enable) {
-  globalAutoReply = enable;
-  try {
-    await fetch(`${LOCAL_API}/api/settings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ globalAutoReply: enable })
-    });
-    updateGlobalUI();
-    showToast(enable ? '▶️ Đã BẬT Auto-Reply Tổng!' : '⏸️ Đã TẮT Auto-Reply Tổng!');
-  } catch {}
-}
-
-async function saveDefaultOption(optNumber) {
-  defaultAutoReplyOption = optNumber;
-  localStorage.setItem('__ai_default_auto_reply_opt', optNumber.toString());
-  try {
-    await fetch(`${LOCAL_API}/api/settings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ defaultAutoReplyOption: optNumber })
-    });
-  } catch {}
 }
 
 // --- IN-CHAT TOOLBAR INJECTION ---
@@ -798,17 +623,7 @@ function attachToolbarsToOpenChats() {
     if (!inputBox) continue;
 
     let bar = container.querySelector('.__ai_chat_bar');
-    const contactName = getContactNameForContainer(container);
-    const isTicked = isContactTicked(contactName);
-
-    if (bar) {
-      const autoBtn = bar.querySelector('.__ai_auto_btn');
-      if (autoBtn) {
-        autoBtn.className = `__ai_btn __ai_auto_btn ${isTicked ? '__ai_btn_auto_on' : '__ai_btn_auto_off'}`;
-        autoBtn.innerHTML = isTicked ? '🤖 Auto: BẬT' : '🤖 Auto: TẮT';
-      }
-      continue;
-    }
+    if (bar) continue;
 
     bar = document.createElement('div');
     bar.className = '__ai_chat_bar';
@@ -817,9 +632,6 @@ function attachToolbarsToOpenChats() {
         <div class="__ai_chat_bar_left">
           <button class="__ai_btn __ai_btn_sparkle __ai_gen_btn" title="AI Gemini phân tích tin nhắn và gợi ý câu trả lời">
             ✨ Gợi ý AI
-          </button>
-          <button class="__ai_btn __ai_auto_btn ${isTicked ? '__ai_btn_auto_on' : '__ai_btn_auto_off'}" title="Bật/Tắt tự động trả lời cho người này">
-            ${isTicked ? '🤖 Auto: BẬT' : '🤖 Auto: TẮT'}
           </button>
         </div>
         <div style="font-size: 11px; color: #a855f7; font-weight: bold; display: flex; align-items: center; gap: 4px;">
@@ -830,7 +642,6 @@ function attachToolbarsToOpenChats() {
     `;
 
     const genBtn = bar.querySelector('.__ai_gen_btn');
-    const autoBtn = bar.querySelector('.__ai_auto_btn');
     const row = bar.querySelector('.__ai_suggestions_row');
 
     genBtn.addEventListener('click', async (e) => {
@@ -842,16 +653,6 @@ function attachToolbarsToOpenChats() {
       const replies = await requestReplies(currentContact, incoming);
       genBtn.innerHTML = '✨ Gợi ý AI';
       renderSuggestionsInRow(row, container, replies);
-    });
-
-    autoBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const currentContact = getContactNameForContainer(container);
-      const nowTicked = !isContactTicked(currentContact);
-      await toggleContactAutoReply(currentContact, nowTicked);
-      autoBtn.className = `__ai_btn __ai_auto_btn ${nowTicked ? '__ai_btn_auto_on' : '__ai_btn_auto_off'}`;
-      autoBtn.innerHTML = nowTicked ? '🤖 Auto: BẬT' : '🤖 Auto: TẮT';
-      updateFloatingPanelContent();
     });
 
     const inputParent = inputBox.closest('form, div[role="region"], div[aria-label*="Soạn tin" i]') || inputBox.parentElement?.parentElement;
@@ -869,15 +670,14 @@ function renderSuggestionsInRow(rowEl, container, replies) {
   rowEl.innerHTML = '';
 
   replies.forEach((text, idx) => {
-    const isDefault = (idx + 1) === defaultAutoReplyOption;
     const chip = document.createElement('div');
     chip.className = '__ai_suggestion_chip';
     chip.innerHTML = `
       <div class="__ai_chip_text" title="${text}">
-        ${isDefault ? '⭐ ' : ''}💡 <b>Option ${idx + 1}:</b> ${text}
+        💡 <b>Lựa chọn ${idx + 1}:</b> ${text}
       </div>
       <div class="__ai_chip_actions">
-        <button class="__ai_chip_btn __ai_chip_insert" title="Chèn vào ô chat để sửa">✍️ Chèn</button>
+        <button class="__ai_chip_btn __ai_chip_insert" title="Chèn vào ô chat để bạn chỉnh sửa">✍️ Chèn</button>
         <button class="__ai_chip_btn __ai_chip_send" title="Gửi ngay">🚀 Gửi ngay</button>
       </div>
     `;
@@ -924,75 +724,20 @@ function createFloatingPanel() {
         <span style="font-size: 17px;">🤖</span>
         <div>
           <div style="font-weight: bold; font-size: 13px; color: #c084fc;">AI COPILOT ASSISTANT</div>
-          <div style="font-size: 10px; color: #94a3b8;">Google Gemini 3.7 Flash • Siêu tốc</div>
+          <div style="font-size: 10px; color: #94a3b8;">Google Gemini 3.7 Flash • Gợi ý thông minh (Gửi thủ công)</div>
         </div>
       </div>
       <button id="__ai_panel_close" style="background:none; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:2px 6px;">✕</button>
     </div>
     <div class="__ai_panel_body">
-      <!-- Master Global Auto-Reply Switch -->
-      <div class="__ai_card" style="display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(30, 41, 59, 0.7)); border-color: rgba(16, 185, 129, 0.3);">
-        <div>
-          <div style="font-size: 11px; font-weight: bold; color: #4ade80; display: flex; align-items: center; gap: 5px;">
-            <span>⚡ AUTO-REPLY TỔNG:</span>
-            <span id="__ai_global_status_badge" style="background:#10b981; color:#fff; font-size:9.5px; padding:1px 6px; border-radius:8px;">BẬT</span>
-          </div>
-          <div style="font-size: 9.5px; color: #94a3b8; margin-top: 2px;">
-            Gõ <code style="color:#f59e0b; font-weight:bold;">.</code> để tắt, gõ <code style="color:#10b981; font-weight:bold;">...</code> để bật
-          </div>
-        </div>
-        <button id="__ai_global_toggle_btn" class="__ai_btn __ai_btn_auto_on" style="font-size:10.5px;">
-          BẬT
-        </button>
-      </div>
-
-      <!-- 1-Click Auto-Send Toggle (Default OFF) -->
-      <div class="__ai_card" style="display: flex; align-items: center; justify-content: space-between; background: rgba(147, 51, 234, 0.1); border-color: rgba(168, 85, 247, 0.25);">
-        <div>
-          <div style="font-size: 11px; font-weight: bold; color: #c084fc;">🚀 CLICK TIN NHẮN TỰ GỬI NGAY:</div>
-          <div style="font-size: 9.5px; color: #94a3b8;">Bấm vào tin nhắn -> AI tự sinh và tự gửi luôn (Mặc định: TẮT)</div>
-        </div>
-        <label style="position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer;">
-          <input type="checkbox" id="__ai_auto_send_checkbox" ${autoSendOnClick ? 'checked' : ''} style="opacity: 0; width: 0; height: 0;">
-          <span id="__ai_switch_track" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${autoSendOnClick ? '#9333ea' : '#475569'}; transition: .3s; border-radius: 20px;">
-            <span id="__ai_switch_thumb" style="position: absolute; content: ''; height: 14px; width: 14px; left: ${autoSendOnClick ? '19px' : '3px'}; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%;"></span>
-          </span>
-        </label>
-      </div>
-
       <!-- Active Contact Bar -->
       <div class="__ai_card" style="display: flex; align-items: center; justify-content: space-between;">
         <div>
           <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Đoạn chat hiện tại</div>
           <div id="__ai_panel_contact" style="font-weight: bold; font-size: 14px; color: #f8fafc;">Đang chọn...</div>
         </div>
-        <button id="__ai_panel_auto_btn" class="__ai_btn __ai_btn_auto_off">
-          🤖 Auto: TẮT
-        </button>
-      </div>
-
-      <!-- Default Option Selector for Auto-Reply -->
-      <div class="__ai_card">
-        <div style="font-size: 11px; color: #c084fc; font-weight: bold; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
-          <span>⚙️ MẶC ĐỊNH GỬI AUTO-REPLY:</span>
-          <span id="__ai_active_opt_badge" style="background:#7c3aed; color:#fff; font-size:10px; padding:2px 8px; border-radius:8px;">Option ${defaultAutoReplyOption}</span>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
-          <button class="__ai_opt_choice_btn ${defaultAutoReplyOption === 1 ? 'active' : ''}" data-opt="1">
-            <div style="font-size: 13px;">1️⃣</div>
-            <div style="font-size: 11px; font-weight: bold;">Option 1</div>
-            <div style="font-size: 9px; opacity: 0.85;">Tự nhiên</div>
-          </button>
-          <button class="__ai_opt_choice_btn ${defaultAutoReplyOption === 2 ? 'active' : ''}" data-opt="2">
-            <div style="font-size: 13px;">2️⃣</div>
-            <div style="font-size: 11px; font-weight: bold;">Option 2</div>
-            <div style="font-size: 9px; opacity: 0.85;">Lịch sự</div>
-          </button>
-          <button class="__ai_opt_choice_btn ${defaultAutoReplyOption === 3 ? 'active' : ''}" data-opt="3">
-            <div style="font-size: 13px;">3️⃣</div>
-            <div style="font-size: 11px; font-weight: bold;">Option 3</div>
-            <div style="font-size: 9px; opacity: 0.85;">Ngắn gọn</div>
-          </button>
+        <div style="font-size: 11px; color: #4ade80; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); padding: 3px 8px; border-radius: 8px; font-weight: 600;">
+          ✨ Sẵn sàng
         </div>
       </div>
 
@@ -1000,7 +745,43 @@ function createFloatingPanel() {
       <div class="__ai_card">
         <div style="font-size: 10px; color: #94a3b8; margin-bottom: 4px;">TIN NHẮN ĐÃ CHỌN / MỚI NHẬN:</div>
         <div id="__ai_panel_message" style="font-size: 12px; color: #e2e8f0; font-style: italic; background: rgba(0,0,0,0.25); padding: 8px; border-radius: 6px; border-left: 3px solid #a855f7;">
-          (Bấm vào bất kỳ tin nhắn nào trong chat để xem gợi ý)
+          (Bấm vào bất kỳ tin nhắn nào trong chat để xem 3 gợi ý)
+        </div>
+      </div>
+
+      <!-- Style & Target Persona Selector -->
+      <div class="__ai_card">
+        <div style="font-size: 11px; color: #f472b6; font-weight: bold; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+          <span>🎯 CHỌN PHONG CÁCH / ĐỐI TƯỢNG:</span>
+          <span id="__ai_active_style_badge" style="background:#7c3aed; color:#fff; font-size:9.5px; padding:1px 6px; border-radius:8px;">Tự động</span>
+        </div>
+        <div id="__ai_style_btns_container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+          <button class="__ai_style_btn" data-persona="persona_flirt_crush" title="Tán gái xinh / crush: push-pull, trêu đùa, rủ đi chơi">
+            <span>💋</span> <span>Gái Xinh / Crush</span>
+          </button>
+          <button class="__ai_style_btn" data-persona="persona_boss_work" title="Làm việc với Sếp / Đối tác: chuyên nghiệp, tiến độ">
+            <span>👔</span> <span>Với Sếp / Đối tác</span>
+          </button>
+          <button class="__ai_style_btn" data-persona="persona_badminton_client" title="Khách học cầu lông: tư vấn kỹ thuật, xếp lịch sân">
+            <span>🏸</span> <span>Khách Cầu Lông</span>
+          </button>
+          <button class="__ai_style_btn" data-persona="persona_shop_customer" title="Khách mua sắm: tư vấn size, chốt đơn freeship">
+            <span>🛍️</span> <span>Khách Mua Sắm</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Custom Note / Specific Intent Input -->
+      <div class="__ai_card" style="display: flex; flex-direction: column; gap: 6px; border-color: rgba(56, 189, 248, 0.35); background: rgba(15, 23, 42, 0.85);">
+        <div style="font-size: 11px; color: #38bdf8; font-weight: bold; display: flex; align-items: center; justify-content: space-between;">
+          <span>✍️ GHI CHÚ / Ý MUỐN CỤ THỂ (GEN CHUẨN Ý):</span>
+          <span id="__ai_clear_custom_note" style="color: #94a3b8; font-size: 10px; cursor: pointer; text-decoration: underline;" title="Xóa ghi chú">Xóa</span>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <input id="__ai_custom_note_input" type="text" placeholder="Gõ ý muốn (vd: rủ ăn lẩu, báo bận ở quê, khen áo đẹp...)" style="flex: 1; min-width: 0; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 6px 10px; color: #f8fafc; font-size: 11.5px; outline: none; transition: border-color 0.2s;">
+          <button id="__ai_apply_custom_note_btn" class="__ai_btn __ai_btn_sparkle" style="padding: 6px 12px; font-size: 11px; white-space: nowrap;" title="Tạo 3 câu gợi ý mới theo đúng ghi chú này">
+            ⚡ Gen
+          </button>
         </div>
       </div>
 
@@ -1010,7 +791,7 @@ function createFloatingPanel() {
           <span>GỢI Ý NHANH THEO NGỮ CẢNH:</span>
           <span id="__ai_panel_loading" style="display:none; color:#c084fc; font-size:10px;">⏳ Đang tạo...</span>
         </div>
-        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+        <div id="__ai_context_pills_container" style="display: flex; gap: 6px; flex-wrap: wrap;">
           <span class="__ai_context_pill" data-ctx="Đồng ý, chốt luôn lịch">+ Đồng ý chốt lịch</span>
           <span class="__ai_context_pill" data-ctx="Hẹn lại vào tối mai">+ Hẹn tối mai</span>
           <span class="__ai_context_pill" data-ctx="Từ chối khéo léo, lịch sự">+ Từ chối khéo</span>
@@ -1032,63 +813,112 @@ function createFloatingPanel() {
     togglePanel(false);
   });
 
-  // 1-Click Auto Send Checkbox Toggle
-  const autoSendCb = document.getElementById('__ai_auto_send_checkbox');
-  const switchTrack = document.getElementById('__ai_switch_track');
-  const switchThumb = document.getElementById('__ai_switch_thumb');
-  autoSendCb.addEventListener('change', () => {
-    autoSendOnClick = autoSendCb.checked;
-    localStorage.setItem('__ai_auto_send_on_click', autoSendOnClick.toString());
-    switchTrack.style.backgroundColor = autoSendOnClick ? '#9333ea' : '#475569';
-    switchThumb.style.left = autoSendOnClick ? '19px' : '3px';
-    showToast(autoSendOnClick ? '🚀 Đã BẬT tính năng Click tin nhắn tự gửi ngay!' : '✍️ Đã TẮT tự gửi (chuyển sang chế độ xem gợi ý)');
-  });
-
-  // Global Auto-Reply Toggle Button
-  const globalBtn = document.getElementById('__ai_global_toggle_btn');
-  globalBtn.addEventListener('click', async () => {
-    await setGlobalAutoReply(!globalAutoReply);
-  });
-
-  // Auto-Reply Toggle for Active Contact
-  const autoBtn = document.getElementById('__ai_panel_auto_btn');
-  autoBtn.addEventListener('click', async () => {
+  // Helper to generate with custom note or context
+  async function generateWithCurrentNote(overrideCtx) {
+    const input = document.getElementById('__ai_custom_note_input');
+    const note = overrideCtx !== undefined ? overrideCtx : (input ? input.value.trim() : '');
+    if (overrideCtx !== undefined && input) {
+      input.value = overrideCtx;
+    }
     const contact = activeSelectedContact || getActiveContactName();
-    const nowTicked = !isContactTicked(contact);
-    await toggleContactAutoReply(contact, nowTicked);
-    updateFloatingPanelContent();
-  });
+    const msg = activeSelectedMessage || 'Alo bạn';
+    document.getElementById('__ai_panel_loading').style.display = 'inline';
+    const replies = await requestReplies(contact, msg, note, activeSelectedPersonaId);
+    document.getElementById('__ai_panel_loading').style.display = 'none';
+    activeReplies = replies;
+    renderFloatingPanelReplies(replies);
+    if (note) {
+      showToast(`🎯 Đã tạo gợi ý theo ghi chú: <b>"${note.length > 30 ? note.slice(0, 30) + '...' : note}"</b>`);
+    }
+  }
 
-  // Default Option Selector Buttons
-  const optBtns = panelEl.querySelectorAll('.__ai_opt_choice_btn');
-  optBtns.forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const opt = parseInt(btn.getAttribute('data-opt'), 10);
-      optBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const badge = document.getElementById('__ai_active_opt_badge');
-      if (badge) badge.textContent = `Option ${opt}`;
-      await saveDefaultOption(opt);
-      if (activeReplies.length > 0) {
-        renderFloatingPanelReplies(activeReplies);
+  // Custom Note Box Listeners
+  const customNoteInput = document.getElementById('__ai_custom_note_input');
+  const applyCustomNoteBtn = document.getElementById('__ai_apply_custom_note_btn');
+  const clearCustomNoteBtn = document.getElementById('__ai_clear_custom_note');
+
+  if (applyCustomNoteBtn) {
+    applyCustomNoteBtn.addEventListener('click', () => generateWithCurrentNote());
+  }
+  if (customNoteInput) {
+    customNoteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        generateWithCurrentNote();
       }
     });
-  });
+  }
+  if (clearCustomNoteBtn) {
+    clearCustomNoteBtn.addEventListener('click', () => {
+      if (customNoteInput) customNoteInput.value = '';
+      generateWithCurrentNote('');
+    });
+  }
 
-  // Quick Context Rewriting
-  const pills = panelEl.querySelectorAll('.__ai_context_pill');
-  pills.forEach(pill => {
-    pill.addEventListener('click', async () => {
-      const ctx = pill.getAttribute('data-ctx');
+  // Helper function to update context pills dynamically
+  function updateContextPills(personaId) {
+    const container = document.getElementById('__ai_context_pills_container');
+    if (!container) return;
+    const preset = STYLE_PRESETS[personaId];
+    const pillsToRender = preset ? preset.pills : DEFAULT_PILLS;
+    container.innerHTML = pillsToRender.map(p => `<span class="__ai_context_pill" data-ctx="${p.ctx}">${p.label}</span>`).join('');
+    
+    // Bind click events on newly rendered pills -> autofill input & generate!
+    container.querySelectorAll('.__ai_context_pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const ctx = pill.getAttribute('data-ctx');
+        generateWithCurrentNote(ctx);
+      });
+    });
+  }
+
+  // Style Buttons Listener
+  const styleBtns = panelEl.querySelectorAll('.__ai_style_btn');
+  styleBtns.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const personaId = btn.getAttribute('data-persona');
+      const badge = document.getElementById('__ai_active_style_badge');
+      
+      if (activeSelectedPersonaId === personaId) {
+        // Toggle OFF
+        activeSelectedPersonaId = '';
+        styleBtns.forEach(b => b.classList.remove('active'));
+        if (badge) {
+          badge.style.background = '#7c3aed';
+          const currentContact = activeSelectedContact || getActiveContactName();
+          const cleanName = (currentContact && currentContact !== 'Đoạn chat hiện tại' && currentContact !== 'Đang chọn...') ? currentContact : '';
+          badge.textContent = cleanName ? `🎯 Tự động: ${cleanName}` : '🎯 Tự động';
+        }
+        updateContextPills('');
+        const currentContact = activeSelectedContact || getActiveContactName();
+        showToast(`🎯 Đã chuyển về phong cách riêng của <b>${currentContact || 'người này'}</b> (Tự động)`);
+      } else {
+        // Toggle ON
+        activeSelectedPersonaId = personaId;
+        styleBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const preset = STYLE_PRESETS[personaId];
+        if (badge && preset) {
+          badge.style.background = '#ec4899';
+          badge.textContent = preset.badge;
+        }
+        updateContextPills(personaId);
+        showToast(`✨ Đã kích hoạt phong cách: <b>${preset ? preset.name : personaId}</b>`);
+      }
+
+      // Automatically re-generate suggestions with new style
       const contact = activeSelectedContact || getActiveContactName();
       const msg = activeSelectedMessage || 'Alo bạn';
       document.getElementById('__ai_panel_loading').style.display = 'inline';
-      const replies = await requestReplies(contact, msg, ctx);
+      const replies = await requestReplies(contact, msg, '', activeSelectedPersonaId);
       document.getElementById('__ai_panel_loading').style.display = 'none';
       activeReplies = replies;
       renderFloatingPanelReplies(replies);
     });
   });
+
+  // Initial bind of default context pills
+  updateContextPills('');
 }
 
 function togglePanel(show) {
@@ -1097,34 +927,30 @@ function togglePanel(show) {
   panelEl.style.display = isPanelOpen ? 'flex' : 'none';
   if (isPanelOpen) {
     updateFloatingPanelContent();
-    updateGlobalUI();
-  }
-}
-
-function updateGlobalUI() {
-  if (!panelEl) return;
-  const badge = document.getElementById('__ai_global_status_badge');
-  const btn = document.getElementById('__ai_global_toggle_btn');
-  if (badge && btn) {
-    badge.style.background = globalAutoReply ? '#10b981' : '#f59e0b';
-    badge.textContent = globalAutoReply ? 'BẬT' : 'TẮT';
-    btn.className = `__ai_btn ${globalAutoReply ? '__ai_btn_auto_on' : '__ai_btn_auto_off'}`;
-    btn.textContent = globalAutoReply ? 'BẬT' : 'TẮT';
   }
 }
 
 function updateFloatingPanelContent() {
   if (!panelEl) return;
   const contactName = activeSelectedContact || getActiveContactName();
-  const isTicked = isContactTicked(contactName);
-
-  document.getElementById('__ai_panel_contact').textContent = contactName;
-  const autoBtn = document.getElementById('__ai_panel_auto_btn');
-  autoBtn.className = `__ai_btn __ai_auto_btn ${isTicked ? '__ai_btn_auto_on' : '__ai_btn_auto_off'}`;
-  autoBtn.innerHTML = isTicked ? '🤖 Auto: BẬT' : '🤖 Auto: TẮT';
+  const contactEl = document.getElementById('__ai_panel_contact');
+  if (contactEl) contactEl.textContent = contactName;
 
   if (activeSelectedMessage) {
-    document.getElementById('__ai_panel_message').textContent = `"${activeSelectedMessage}"`;
+    const msgEl = document.getElementById('__ai_panel_message');
+    if (msgEl) msgEl.textContent = `"${activeSelectedMessage}"`;
+  }
+
+  const badge = document.getElementById('__ai_active_style_badge');
+  if (badge) {
+    if (activeSelectedPersonaId && STYLE_PRESETS[activeSelectedPersonaId]) {
+      badge.style.background = '#ec4899';
+      badge.textContent = STYLE_PRESETS[activeSelectedPersonaId].badge;
+    } else {
+      badge.style.background = '#7c3aed';
+      const cleanName = (contactName && contactName !== 'Đoạn chat hiện tại' && contactName !== 'Đang chọn...') ? contactName : '';
+      badge.textContent = cleanName ? `🎯 Tự động: ${cleanName}` : '🎯 Tự động';
+    }
   }
 }
 
@@ -1136,18 +962,13 @@ function renderFloatingPanelReplies(replies) {
 
   replies.forEach((text, i) => {
     const optNum = i + 1;
-    const isDefault = optNum === defaultAutoReplyOption;
     const card = document.createElement('div');
     card.className = '__ai_card';
-    card.style.borderColor = isDefault ? 'rgba(168, 85, 247, 0.6)' : 'rgba(255,255,255,0.08)';
-    if (isDefault) {
-      card.style.background = 'linear-gradient(135deg, rgba(88, 28, 135, 0.25), rgba(30, 41, 59, 0.7))';
-    }
+    card.style.borderColor = 'rgba(255,255,255,0.08)';
 
     card.innerHTML = `
-      <div style="font-size: 11px; font-weight: bold; color: ${isDefault ? '#c084fc' : '#94a3b8'}; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+      <div style="font-size: 11px; font-weight: bold; color: #c084fc; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
         <span>LỰA CHỌN ${optNum} (${i === 0 ? 'Tự nhiên' : i === 1 ? 'Lịch sự' : 'Ngắn gọn'}):</span>
-        ${isDefault ? '<span style="color:#4ade80; font-size:10px; font-weight:normal;">⭐ Mặc định Auto</span>' : `<button class="__ai_set_default_btn" data-set-opt="${optNum}" style="background:none; border:none; color:#a855f7; font-size:10px; cursor:pointer;">[Đặt làm mặc định]</button>`}
       </div>
       <div style="font-size: 12px; color: #f1f5f9; line-height: 1.4; margin-bottom: 8px;">${text}</div>
       <div style="display: flex; justify-content: flex-end; gap: 6px;">
@@ -1156,20 +977,6 @@ function renderFloatingPanelReplies(replies) {
         <button class="__ai_btn __ai_btn_sparkle __ai_btn_send">🚀 Gửi ngay</button>
       </div>
     `;
-
-    const setDefBtn = card.querySelector('.__ai_set_default_btn');
-    if (setDefBtn) {
-      setDefBtn.addEventListener('click', async () => {
-        await saveDefaultOption(optNum);
-        const optBtns = panelEl.querySelectorAll('.__ai_opt_choice_btn');
-        optBtns.forEach(b => {
-          b.classList.toggle('active', parseInt(b.getAttribute('data-opt'), 10) === optNum);
-        });
-        const badge = document.getElementById('__ai_active_opt_badge');
-        if (badge) badge.textContent = `Option ${optNum}`;
-        renderFloatingPanelReplies(activeReplies);
-      });
-    }
 
     card.querySelector('.__ai_btn_copy').addEventListener('click', () => {
       navigator.clipboard.writeText(text);
@@ -1230,58 +1037,56 @@ function updateBadge(connected) {
   }
 
   if (connected) {
-    badgeEl.style.background = globalAutoReply ? 'linear-gradient(135deg, #7c3aed, #4f46e5)' : '#475569';
+    badgeEl.style.background = 'linear-gradient(135deg, #7c3aed, #4f46e5)';
     badgeEl.style.color = '#ffffff';
-    badgeEl.innerHTML = `<span style="color:${globalAutoReply ? '#4ade80' : '#f59e0b'};">●</span> <span>AI Copilot (${globalAutoReply ? 'Auto: BẬT' : 'Auto: TẮT'})</span> <span style="font-size:9px; opacity:0.85; background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:10px;">Mở</span>`;
+    badgeEl.innerHTML = `<span style="color:#4ade80;">●</span> <span>AI Copilot (Gợi ý)</span> <span style="font-size:9px; opacity:0.85; background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:10px;">Mở</span>`;
   } else {
     badgeEl.style.background = '#334155';
     badgeEl.style.color = '#94a3b8';
-    badgeEl.innerHTML = '<span>○</span> <span>AI Copilot: Đang kết nối...</span>';
+    badgeEl.innerHTML = '<span>○</span> <span>AI Copilot: Đang kết nối...</span> <span style="font-size:9px; opacity:0.85; background:rgba(239,68,68,0.3); color:#fca5a5; padding:1px 5px; border-radius:8px;">Bật App</span>';
   }
 }
 
 // --- SYNC WITH LOCAL APP API ---
 async function checkConnection() {
+  let currentPort = 45678;
   try {
-    const res = await fetch(`${LOCAL_API}/api/status`, { method: 'GET' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.status === 'ok') {
-        isConnected = true;
-        updateBadge(true);
-        return true;
-      }
-    }
+    const urlObj = new URL(LOCAL_API);
+    currentPort = parseInt(urlObj.port, 10) || 45678;
   } catch {}
+
+  const portsToTry = [
+    currentPort,
+    ...CANDIDATE_PORTS.filter(p => p !== currentPort)
+  ];
+
+  for (const port of portsToTry) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1200);
+      const res = await fetch(`http://127.0.0.1:${port}/api/status`, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'ok') {
+          LOCAL_API = `http://127.0.0.1:${port}`;
+          isConnected = true;
+          updateBadge(true);
+          return true;
+        }
+      }
+    } catch {}
+  }
+
   isConnected = false;
   updateBadge(false);
   return false;
 }
 
-async function fetchTickedContacts() {
-  try {
-    const res = await fetch(`${LOCAL_API}/api/contacts`, { method: 'GET' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.contacts && Array.isArray(data.contacts)) {
-        tickedContactsCache = data.contacts
-          .filter(c => c.autoReplyEnabled)
-          .map(c => c.name);
-        lastTickedFetchTime = Date.now();
-      }
-      if (data.globalAutoReply !== undefined) {
-        globalAutoReply = data.globalAutoReply;
-        updateGlobalUI();
-        updateBadge(isConnected);
-      }
-      if (data.defaultAutoReplyOption) {
-        defaultAutoReplyOption = data.defaultAutoReplyOption;
-      }
-    }
-  } catch {}
-}
-
-// Track active contact change automatically & establish baseline immediately
+// Track active contact change automatically
 function syncActiveContact() {
   const current = getActiveContactName();
   if (current && current !== 'Đoạn chat hiện tại' && current !== lastKnownContact) {
@@ -1290,15 +1095,9 @@ function syncActiveContact() {
     activeSelectedContact = current;
     activeSelectedMessage = '';
     activeReplies = [];
-    isSwitchingChat = true; // Block auto-reply during switch
+    isSwitchingChat = true;
     updateFloatingPanelContent();
-
     setTimeout(() => {
-      const baseline = getLatestIncomingMessage(null);
-      if (baseline) {
-        lastSeenIncomingPerContact[current] = baseline;
-        console.log(`[AI Extension] Sync recorded baseline for "${current}": "${baseline}"`);
-      }
       isSwitchingChat = false;
     }, 700);
   }
@@ -1322,7 +1121,7 @@ document.addEventListener('click', async (e) => {
       lastKnownContact = switchedName;
       activeSelectedMessage = '';
       activeReplies = [];
-      isSwitchingChat = true; // Block auto-reply
+      isSwitchingChat = true;
       updateFloatingPanelContent();
 
       // Clear previous in-chat suggestions row
@@ -1331,17 +1130,11 @@ document.addEventListener('click', async (e) => {
         r.innerHTML = '';
       });
 
-      // After chat renders (700ms), baseline the existing incoming message so AI NEVER replies to old history!
       setTimeout(() => {
-        const baseline = getLatestIncomingMessage(null);
-        if (baseline) {
-          lastSeenIncomingPerContact[switchedName] = baseline;
-          console.log(`[AI Extension] Baseline history recorded for "${switchedName}": "${baseline}" (no auto-reply)`);
-        }
         isSwitchingChat = false;
       }, 700);
     }
-    return; // CRITICAL: Stop here! DO NOT treat switching chat as clicking a message!
+    return;
   }
 
   // 2. Ignore non-message elements: UI elements, inputs, menus, headers
@@ -1422,186 +1215,13 @@ document.addEventListener('click', async (e) => {
     // Floating panel suggestions
     updateFloatingPanelContent();
     renderFloatingPanelReplies(replies);
-
-    // ONLY auto-send if user deliberately switched ON "autoSendOnClick" in panel!
-    if (autoSendOnClick && replies && replies.length > 0) {
-      const opt = defaultAutoReplyOption || 1;
-      const chosenIndex = Math.max(0, Math.min(opt - 1, replies.length - 1));
-      const chosen = replies[chosenIndex] || replies[0];
-
-      if (chosen && !chosen.includes('AI chưa gen xong')) {
-        showToast(`🚀 Đang tự động gửi Option ${opt} cho <b>${contact}</b>: "${chosen}"`);
-        setTimeout(() => {
-          insertAndSendText(chosen, container, true);
-        }, 400);
-      } else {
-        console.warn('[AI Extension] Bỏ qua auto-send: AI chưa hoàn tất tạo câu trả lời.');
-      }
-    }
   }
 }, true);
 
-// --- AUTO-REPLY ONLY WHEN A GENUINELY NEW INCOMING MESSAGE ARRIVES ---
-async function runActiveChatAutoReplyScan() {
-  if (!isConnected || !globalAutoReply || isSwitchingChat || isSending) return;
-
-  const contact = getActiveContactName();
-  if (!contact || contact === 'Đoạn chat hiện tại') return;
-  if (!isContactTicked(contact)) return; // Only for TICKED contacts!
-
-  const incomingText = getLatestIncomingMessage(null);
-  if (!incomingText) return;
-
-  // Baseline on first sight of this contact: NEVER auto-reply to existing chat history!
-  if (lastSeenIncomingPerContact[contact] === undefined) {
-    lastSeenIncomingPerContact[contact] = incomingText;
-    console.log(`[AI Auto-Reply Scan] Baseline established for "${contact}": "${incomingText}" (no auto-reply to history)`);
-    return;
-  }
-
-  // ONLY trigger if incomingText is STRICTLY NEW and DIFFERENT from baseline!
-  if (incomingText !== lastSeenIncomingPerContact[contact]) {
-    lastSeenIncomingPerContact[contact] = incomingText;
-    console.log(`[AI Auto-Reply Scan] Genuinely NEW incoming message from "${contact}": "${incomingText}"`);
-
-    try {
-      const res = await fetch(`${LOCAL_API}/api/trigger-incoming`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contact,
-          message: incomingText,
-          platform: 'messenger'
-        })
-      });
-      const data = await res.json();
-      if (data && data.replyResponse && data.replyResponse.suggestedReplies) {
-        const replies = data.replyResponse.suggestedReplies;
-        const opt = (data.defaultAutoReplyOption || defaultAutoReplyOption || 1);
-        const chosenIndex = Math.max(0, Math.min(opt - 1, replies.length - 1));
-        const chosen = replies[chosenIndex] || replies[0];
-        
-        if (chosen && !chosen.includes('AI chưa gen xong')) {
-          console.log(`[AI Auto-Reply] Auto-sending Option ${opt} in 2.5s to "${contact}": "${chosen}"`);
-          showToast(`🤖 Auto-Reply: Đang gửi Option ${opt} cho <b>${contact}</b>...`);
-          setTimeout(() => {
-            // Guard: ensure user is still on the same contact
-            if (getActiveContactName() === contact) {
-              insertAndSendText(chosen, null, true);
-            }
-          }, 2500);
-        } else {
-          console.warn('[AI Auto-Reply] Bỏ qua auto-send: AI chưa gen xong.');
-        }
-      }
-    } catch (e) {
-      console.warn('[AI Extension] Auto reply error:', e);
-    }
-  }
-}
-
-// --- CROSS-CHAT SCANNER: AUTO-REPLY KỂ CẢ KHI ĐANG Ở ĐOẠN CHAT KHÁC ---
-async function scanSidebarThreadsAndAutoReply() {
-  if (!isConnected || !globalAutoReply || isSwitchingChat || isSending) return;
-  if (!tickedContactsCache || tickedContactsCache.length === 0) return;
-
-  const threadElements = Array.from(document.querySelectorAll(
-    'a[href*="/messages/t/"], a[href*="/t/"], div[role="navigation"] [role="row"], div[aria-label*="Đoạn chat" i] a, div[data-testid="mwthreadlist"] a, div[role="grid"] [role="row"]'
-  ));
-
-  const currentContact = getActiveContactName() || '';
-  const currentNorm = normalize(currentContact);
-
-  for (const thread of threadElements) {
-    const textNodes = Array.from(thread.querySelectorAll('span[dir="auto"], h2, h3, a span, div[dir="auto"]'))
-      .map(el => cleanText(el.textContent || ''))
-      .filter(t => t && t.length >= 2 && !/^\d{1,2}:\d{2}/.test(t));
-
-    if (textNodes.length === 0) continue;
-    const name = textNodes[0];
-    const normName = normalize(name);
-
-    if (!isContactTicked(name)) continue;
-
-    const snippet = textNodes.length > 1 ? textNodes[1] : '';
-    // Skip outgoing messages
-    if (snippet && (snippet.startsWith('Bạn:') || snippet.startsWith('You:') || snippet.startsWith('bạn:') || snippet.startsWith('you:'))) {
-      continue;
-    }
-
-    // Baseline snippet if first time seen (never auto-reply on first scan!)
-    if (lastSidebarRepliedSnippets[normName] === undefined) {
-      lastSidebarRepliedSnippets[normName] = snippet || '__initial__';
-      continue;
-    }
-
-    const hasUnreadBadge = Boolean(
-      thread.querySelector('[aria-label*="chưa đọc" i], [aria-label*="unread" i], .badge') ||
-      thread.querySelector('div[style*="border-radius: 50%"]') ||
-      thread.querySelector('span[style*="font-weight: bold"], span[style*="font-weight: 600"], span[style*="font-weight: 700"]')
-    );
-
-    const lastReplied = lastSidebarRepliedSnippets[normName];
-
-    // ONLY trigger when there is an unread badge AND snippet changed from what we already saw!
-    if (hasUnreadBadge && snippet && snippet !== lastReplied && normName !== currentNorm) {
-      console.log(`[Cross-Chat Auto-Reply] Ticked contact "${name}" has unread incoming: "${snippet}". Auto-switching to reply!`);
-      lastSidebarRepliedSnippets[normName] = snippet;
-      isSwitchingChat = true;
-
-      showToast(`⚡ Nhận tin nhắn mới từ <b>${name}</b>. Đang tự động chuyển sang để trả lời...`);
-
-      const clickable = (thread.tagName === 'A' ? thread : thread.querySelector('a') || thread);
-      clickable.click();
-
-      setTimeout(async () => {
-        isSwitchingChat = false;
-        const incomingText = snippet || getLatestIncomingMessage(null) || 'Alo bạn';
-        lastSeenIncomingPerContact[name] = incomingText;
-        
-        try {
-          const res = await fetch(`${LOCAL_API}/api/trigger-incoming`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contact: name,
-              message: incomingText,
-              platform: 'messenger'
-            })
-          });
-          const data = await res.json();
-          if (data && data.replyResponse && data.replyResponse.suggestedReplies) {
-            const replies = data.replyResponse.suggestedReplies;
-            const opt = (data.defaultAutoReplyOption || defaultAutoReplyOption || 1);
-            const chosenIndex = Math.max(0, Math.min(opt - 1, replies.length - 1));
-            const chosen = replies[chosenIndex] || replies[0];
-
-            if (chosen && !chosen.includes('AI chưa gen xong')) {
-              showToast(`🤖 Đang tự động gửi Option ${opt} cho <b>${name}</b>: "${chosen}"`);
-              setTimeout(() => {
-                insertAndSendText(chosen, null, true);
-              }, 1500);
-            } else {
-              console.warn('[Cross-Chat Auto-Reply] Bỏ qua auto-send: AI chưa gen xong.');
-            }
-          }
-        } catch (e) {
-          console.warn('[Cross-Chat Auto-Reply] Send error:', e);
-        }
-      }, 1000);
-
-      break;
-    }
-  }
-}
-
 // --- INITIALIZATION & RECURRING LOOPS ---
 checkConnection();
-fetchTickedContacts();
 createFloatingPanel();
 
 setInterval(checkConnection, 5000);
 setInterval(syncActiveContact, 1000);
 setInterval(attachToolbarsToOpenChats, 1200);
-setInterval(runActiveChatAutoReplyScan, 2000);
-setInterval(scanSidebarThreadsAndAutoReply, 3000);

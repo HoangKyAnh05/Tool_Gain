@@ -246,6 +246,7 @@ export class GeminiService {
               { role: 'user', content: userPrompt }
             ],
             temperature: persona.temperature || 0.6,
+            max_tokens: 600,
             response_format: { type: 'json_object' }
           })
         });
@@ -321,6 +322,9 @@ export class GeminiService {
   private sanitizeReply(text: string): string {
     if (!text) return '';
     let cleaned = text.trim();
+
+    // Remove prefixes like "Phương án 1: ", "Option 1: ", "1. ", etc.
+    cleaned = cleaned.replace(/^(Phương án|Option|Lựa chọn|\d+\.)\s*\d*\s*[:.-]\s*/i, '').trim();
 
     // Remove surrounding quotes if model added them
     cleaned = cleaned.replace(/^["'“”«»](.*)["'“”«»]$/s, '$1').trim();

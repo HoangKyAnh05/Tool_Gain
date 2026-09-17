@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Sparkles,
@@ -6,12 +6,8 @@ import {
   Copy,
   Edit3,
   RefreshCw,
-  Clock,
   Database,
-  CheckCircle2,
-  XCircle,
   Tag,
-  Zap,
   Check,
   ChevronDown,
   MessageSquare,
@@ -39,16 +35,10 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     personas,
     contacts,
     settings,
-    updateSettings,
-    updateContact,
-    savePersona,
-    activeTimers,
-    cancelAutoReply,
     approveAndSendReply,
     fillChatInput,
     regenerateReply,
     setContactCategory,
-    autoReplyStatusNotice,
     selectCustomMessage
   } = useApp();
 
@@ -60,7 +50,6 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [isInputtingMessage, setIsInputtingMessage] = useState<boolean>(false);
   const [manualInputText, setManualInputText] = useState<string>('');
-  const [contactAutoReplyMap, setContactAutoReplyMap] = useState<Record<string, boolean>>({});
   const [contactCategoryMap, setContactCategoryMap] = useState<Record<string, ContactCategory>>({});
   const [contactPersonaMap, setContactPersonaMap] = useState<Record<string, string>>({});
 
@@ -89,23 +78,28 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
   const hasActiveChat = Boolean(contactName && contactName.trim().length > 0 && contactName !== 'Đang chờ chọn tin nhắn');
   const displayName = hasActiveChat ? contactName : 'Chưa chọn cuộc trò chuyện';
 
-  const timerKey = `${platform}_${contactName}`;
-  const remainingSeconds = activeTimers[timerKey] ?? 0;
-  const isCountingDown = remainingSeconds > 0;
-
   const currentPersonaId =
     contactPersonaMap[contactKey] ||
     matchedContact?.personaId;
 
+  const customPersonaForContact = useMemo(() => {
+    if (!contactName || contactName === 'Chưa chọn cuộc trò chuyện' || contactName === 'Đang chờ chọn tin nhắn') return null;
+    const norm = normalizeName(contactName);
+    if (!norm || norm.length < 2) return null;
+    return personas.find(p => {
+      const pNorm = normalizeName(p.id.replace('persona_', ''));
+      const pNameNorm = normalizeName(p.name);
+      return pNorm === norm || (norm.length >= 4 && (pNorm.includes(norm) || norm.includes(pNorm))) ||
+        pNameNorm.includes(norm) || (p.systemPrompt && normalizeName(p.systemPrompt).includes(norm));
+    });
+  }, [contactName, personas]);
+
   const currentPersona =
     (currentPersonaId ? personas.find(p => p.id === currentPersonaId) : null) ||
+    customPersonaForContact ||
     personas.find(p => p.category === contactCategory && p.isDefault) ||
     personas.find(p => p.category === contactCategory) ||
     personas[0];
-
-  const isAutoReplyChecked = contactAutoReplyMap[contactKey] !== undefined
-    ? contactAutoReplyMap[contactKey]
-    : (matchedContact ? Boolean(matchedContact.autoReplyEnabled) : true);
 
   const aiModelDisplayName =
     settings?.aiProvider === 'groq'
@@ -114,16 +108,13 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
       ? `Gemini (${settings?.geminiModel || '3.7 Flash'})`
       : `Google AI (${settings?.geminiModel || '2.0 Flash'})`;
 
-
   const hasAISuggestions = Boolean(
     currentSuggestion?.replyResponse?.suggestedReplies &&
     currentSuggestion.replyResponse.suggestedReplies.length > 0
   );
 
   const suggestions = hasAISuggestions ? currentSuggestion!.replyResponse.suggestedReplies : [];
-
   const matchedKnowledge = currentSuggestion?.replyResponse?.matchedKnowledge || [];
-  const detectedIntent = currentSuggestion?.replyResponse?.detectedIntent || (contactCategory === 'friend' ? 'Bạn bè trò chuyện' : 'Yêu cầu tư vấn');
   const incomingMsgDisplay = currentSuggestion?.incomingMessage || undefined;
 
   const handleCopy = (text: string, index: number) => {
@@ -165,12 +156,10 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
       setContactPersonaMap(prev => ({ ...prev, [contactKey]: targetPersona.id }));
     }
 
-    // Persist permanently if contactName is present
     if (contactName && contactName.trim()) {
       await setContactCategory(platform, contactName.trim(), newCategory, targetPersona?.id);
     }
 
-    // Trigger regenerate if there is a selected/incoming message
     const msg = incomingMsgDisplay || currentSuggestion?.incomingMessage;
     if (msg && contactName) {
       setIsRegenerating(true);
@@ -206,41 +195,6 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
     }
   };
 
-  const handleToggleAutoReply = async (checked: boolean) => {
-    setContactAutoReplyMap(prev => ({ ...prev, [contactKey]: checked }));
-    if (matchedContact) {
-      await updateContact(matchedContact.id, { autoReplyEnabled: checked });
-    } else if (contactName && contactName.trim()) {
-      if (window.electronAPI?.getOrCreateContact) {
-        const contact = await window.electronAPI.getOrCreateContact(platform, contactName.trim());
-        if (contact) {
-          await updateContact(contact.id, { autoReplyEnabled: checked });
-        }
-      }
-    }
-  };
-
-  const handleInstantAutoReply = async () => {
-    const targetName = contactName || 'Đoạn chat đang mở';
-    const targetMsg = currentSuggestion?.incomingMessage || 'Tin nhắn mới nhất';
-    setIsRegenerating(true);
-    try {
-      await fetch('http://127.0.0.1:45678/api/trigger-incoming', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contact: targetName,
-          message: targetMsg,
-          platform
-        })
-      });
-    } catch (e) {
-      console.warn('Instant auto-reply failed:', e);
-    } finally {
-      setIsRegenerating(false);
-    }
-  };
-
   const handleRegenerate = async (overridePrompt?: string) => {
     setIsRegenerating(true);
     try {
@@ -250,27 +204,6 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
         ? `${msg}\n[NGỮ CẢNH / HƯỚNG TRẢ LỜI CỦA TÔI: ${promptContext}]`
         : msg;
       await regenerateReply(platform, contactName, promptToUse, currentPersona?.id);
-    } finally {
-      setIsRegenerating(false);
-    }
-  };
-
-  const handleRegenerateAndSend = async (overridePrompt?: string) => {
-    setIsRegenerating(true);
-    try {
-      const msg = currentSuggestion?.incomingMessage || 'Xin chào bạn nhé';
-      const promptContext = (overridePrompt !== undefined ? overridePrompt : customPrompt).trim();
-      const promptToUse = promptContext
-        ? `${msg}\n[NGỮ CẢNH / HƯỚNG TRẢ LỜI CỦA TÔI: ${promptContext}]`
-        : msg;
-      const res = await regenerateReply(platform, contactName, promptToUse, currentPersona?.id);
-      if (res && res.suggestedReplies && res.suggestedReplies.length > 0) {
-        const defaultOptIndex = settings?.defaultAutoReplyOption ? settings.defaultAutoReplyOption - 1 : 0;
-        const chosenText = res.suggestedReplies[defaultOptIndex] || res.suggestedReplies[0];
-        await approveAndSendReply(platform, contactName, chosenText);
-      }
-    } catch (err) {
-      console.error('Error in handleRegenerateAndSend:', err);
     } finally {
       setIsRegenerating(false);
     }
@@ -306,7 +239,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             </div>
             <div>
               <h2 className="text-xs font-bold text-white uppercase tracking-wider">AI Copilot Assistant</h2>
-              <p className="text-[10px] text-slate-400">Thời gian thực • Tương tác thông minh</p>
+              <p className="text-[10px] text-slate-400">Gợi ý câu trả lời • Bạn chủ động duyệt gửi</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -325,48 +258,6 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               {platform.toUpperCase()}
             </span>
           </div>
-        </div>
-
-        {/* Master Global Auto-Reply Switch */}
-        <div className={`mb-3 p-2 rounded-xl border flex items-center justify-between transition-all ${
-          settings?.globalAutoReply
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-            : 'bg-surface-900 border-amber-500/30 text-slate-300'
-        }`}>
-          <div className="flex items-center gap-2">
-            <Zap className={`w-4 h-4 ${settings?.globalAutoReply ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
-            <div>
-              <div className="text-[11px] font-bold flex items-center gap-1.5">
-                <span>Auto-Reply Tổng:</span>
-                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                  settings?.globalAutoReply
-                    ? 'bg-emerald-500/20 text-emerald-300'
-                    : 'bg-amber-500/20 text-amber-300'
-                }`}>
-                  {settings?.globalAutoReply ? 'ĐANG BẬT' : 'ĐÃ TẮT'}
-                </span>
-              </div>
-              <div className="text-[9.5px] text-slate-400">
-                Gõ <code className="text-amber-300 font-mono">.</code> để tắt, gõ <code className="text-emerald-300 font-mono">...</code> để bật
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={async () => {
-              const next = !settings?.globalAutoReply;
-              await updateSettings({ globalAutoReply: next });
-              if (window.electronAPI?.handleUserMessage) {
-                await window.electronAPI.handleUserMessage(platform, contactName, next ? '...' : '.');
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer shadow-sm ${
-              settings?.globalAutoReply
-                ? 'bg-surface-800 text-rose-300 hover:bg-rose-500/20 border border-surface-700 hover:border-rose-500/30'
-                : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold shadow-emerald-500/20'
-            }`}
-          >
-            {settings?.globalAutoReply ? 'Tắt' : 'Bật ngay'}
-          </button>
         </div>
 
         {/* Contact Info & Classification */}
@@ -429,79 +320,79 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               <ChevronDown className="w-3 h-3 absolute right-1.5 top-2 pointer-events-none text-slate-400" />
             </div>
           </div>
+        </div>
 
-          {/* Per-Chat Auto-Reply Ticking Checkbox */}
-          <div className="pt-2 border-t border-surface-700/40 flex items-center justify-between">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isAutoReplyChecked}
-                onChange={(e) => handleToggleAutoReply(e.target.checked)}
-                className="w-4 h-4 rounded text-brand-600 bg-surface-950 border-surface-700 focus:ring-brand-500 cursor-pointer accent-brand-500"
-              />
-              <span className="text-[11px] font-semibold text-slate-200">
-                Tích chọn Auto-Reply cho chat này
-              </span>
-            </label>
+        {/* Quick Style / Target Persona 1-Click Buttons */}
+        <div className="mt-3 p-2.5 rounded-xl bg-surface-850 border border-surface-750 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-pink-400 flex items-center gap-1">
+              <span>🎯</span>
+              <span>Chọn phong cách / Đối tượng:</span>
+            </span>
+            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-300 font-semibold border border-brand-500/30">
+              {currentPersona?.id === 'persona_flirt_crush' ? '💋 Gái Xinh' :
+               currentPersona?.id === 'persona_boss_work' ? '👔 Với Sếp' :
+               currentPersona?.id === 'persona_badminton_client' ? '🏸 Cầu Lông' :
+               currentPersona?.id === 'persona_shop_customer' ? '🛍️ Mua Sắm' :
+               `🎯 Tự động${customPersonaForContact ? `: ${customPersonaForContact.name.split('(')[0].trim()}` : ''}`}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
-              onClick={() => handleToggleAutoReply(!isAutoReplyChecked)}
-              className={`text-[10px] px-2 py-0.5 rounded-full font-bold cursor-pointer transition-all ${
-                isAutoReplyChecked
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
-                  : 'bg-surface-950 text-slate-400 border border-surface-750 hover:border-slate-500'
+              onClick={() => handlePersonaChange('persona_flirt_crush')}
+              className={`py-1.5 px-2 rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                currentPersona?.id === 'persona_flirt_crush'
+                  ? 'bg-gradient-to-r from-pink-500/30 to-purple-500/30 border-pink-500 text-white shadow-sm shadow-pink-500/20'
+                  : 'bg-surface-950/60 hover:bg-surface-800 text-slate-300 border-surface-700 hover:border-pink-500/40'
               }`}
             >
-              {isAutoReplyChecked ? '✓ Đã tích' : 'Chưa tích'}
+              <span>💋</span>
+              <span className="truncate">Gái Xinh / Crush</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePersonaChange('persona_boss_work')}
+              className={`py-1.5 px-2 rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                currentPersona?.id === 'persona_boss_work'
+                  ? 'bg-gradient-to-r from-blue-500/30 to-indigo-500/30 border-blue-500 text-white shadow-sm shadow-blue-500/20'
+                  : 'bg-surface-950/60 hover:bg-surface-800 text-slate-300 border-surface-700 hover:border-blue-500/40'
+              }`}
+            >
+              <span>👔</span>
+              <span className="truncate">Với Sếp / Đối tác</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePersonaChange('persona_badminton_client')}
+              className={`py-1.5 px-2 rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                currentPersona?.id === 'persona_badminton_client'
+                  ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/30 border-emerald-500 text-white shadow-sm shadow-emerald-500/20'
+                  : 'bg-surface-950/60 hover:bg-surface-800 text-slate-300 border-surface-700 hover:border-emerald-500/40'
+              }`}
+            >
+              <span>🏸</span>
+              <span className="truncate">Khách Cầu Lông</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePersonaChange('persona_shop_customer')}
+              className={`py-1.5 px-2 rounded-lg text-[10.5px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                currentPersona?.id === 'persona_shop_customer'
+                  ? 'bg-gradient-to-r from-amber-500/30 to-orange-500/30 border-amber-500 text-white shadow-sm shadow-amber-500/20'
+                  : 'bg-surface-950/60 hover:bg-surface-800 text-slate-300 border-surface-700 hover:border-amber-500/40'
+              }`}
+            >
+              <span>🛍️</span>
+              <span className="truncate">Khách Mua Sắm</span>
             </button>
           </div>
-
-          {/* Instant Auto-Reply Button */}
-          <button
-            type="button"
-            onClick={handleInstantAutoReply}
-            disabled={isRegenerating}
-            className="mt-2.5 w-full py-1.5 px-3 rounded-lg text-[11px] font-bold bg-gradient-to-r from-purple-600 via-indigo-600 to-brand-600 hover:from-purple-500 hover:to-brand-500 text-white shadow-md hover:shadow-purple-500/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 border border-purple-400/30"
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-            <span>{isRegenerating ? 'Đang tạo & gửi tin...' : '⚡ Kích hoạt Auto-Reply cho tin này ngay'}</span>
-          </button>
         </div>
       </div>
-
-      {/* Auto-Reply Global Notice Banner (Triggered by '.' or '...') */}
-      {autoReplyStatusNotice && (
-        <div className="p-2.5 bg-brand-500/20 border-b border-brand-500/40 text-xs font-semibold text-brand-200 flex items-center gap-2 animate-fade-in">
-          <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-          <span>{autoReplyStatusNotice}</span>
-        </div>
-      )}
-
-      {/* Auto-Reply Countdown Banner */}
-      {isCountingDown && (
-        <div className="p-3 bg-amber-500/10 border-b border-amber-500/30 animate-fade-in">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300">
-              <Clock className="w-3.5 h-3.5 animate-spin" />
-              <span>Đang đếm ngược tự động gửi ({remainingSeconds}s)</span>
-            </div>
-            <button
-              onClick={() => cancelAutoReply(timerKey)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 transition-all cursor-pointer"
-            >
-              <XCircle className="w-3 h-3" />
-              <span>Hủy gửi</span>
-            </button>
-          </div>
-          {/* Progress Bar */}
-          <div className="w-full bg-surface-800 rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-amber-500 to-amber-300 h-full transition-all duration-1000 ease-linear"
-              style={{ width: `${Math.min(100, (remainingSeconds / (currentPersona?.autoDelaySeconds || 5)) * 100)}%` }}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -511,17 +402,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
             <span className="text-base shrink-0 mt-0.5">⚠️</span>
             <div className="leading-relaxed">
               <strong className="block text-rose-200 font-bold mb-0.5">Tin nhắn cần bạn tự ra quyết định!</strong>
-              <span className="text-[11px] text-slate-300">Nội dung liên quan đến tiền bạc / lịch học / cam kết quan trọng. AI tự động trả lời hoãn binh để bạn cân nhắc và không tự ý quyết định thay bạn.</span>
-            </div>
-          </div>
-        )}
-
-        {/* API Warning Notice if any */}
-        {currentSuggestion?.replyResponse?.error && (
-          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 flex items-start gap-2">
-            <span className="text-amber-400 font-bold shrink-0">⚠️</span>
-            <div className="leading-tight">
-              <span>{currentSuggestion.replyResponse.error}</span>
+              <span className="text-[11px] text-slate-300">Nội dung liên quan đến tiền bạc / cam kết quan trọng. AI chỉ gợi ý câu trả lời để bạn cân nhắc và không tự ý quyết định thay bạn.</span>
             </div>
           </div>
         )}
@@ -579,7 +460,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                     handleSubmitManualMessage();
                   }
                 }}
-                placeholder="Gõ hoặc dán tin nhắn của khách vào đây rồi nhấn Enter..."
+                placeholder="Gõ hoặc dán tin nhắn vào đây rồi nhấn Enter..."
                 rows={2}
                 className="w-full text-xs bg-surface-900 border border-surface-750 rounded-lg p-2 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 font-sans resize-none"
                 autoFocus
@@ -649,7 +530,7 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300">
               <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
-              <span>Ngữ cảnh / Định hướng trả lời:</span>
+              <span>Ghi chú / Ngữ cảnh muốn AI nói theo ý bạn:</span>
             </div>
             {customPrompt && (
               <button
@@ -674,26 +555,17 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
                   handleRegenerate();
                 }
               }}
-              placeholder="Nhập ngữ cảnh (VD: 'Đang bận', 'Hẹn tối nay', 'Từ chối')..."
+              placeholder="Nhập ý muốn (VD: 'Đang bận', 'Hẹn tối nay', 'Rủ đi ăn lẩu')..."
               className="flex-1 text-xs bg-surface-950 border border-surface-750 rounded-lg px-2.5 py-1.5 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-amber-500/80 transition-all font-sans"
             />
             <button
               onClick={() => handleRegenerate()}
               disabled={isRegenerating || !incomingMsgDisplay}
-              className="px-2 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-750 text-slate-200 border border-surface-700 text-xs font-semibold flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer shrink-0"
-              title="Tạo 3 phương án để xem trước và chọn trước khi gửi"
+              className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer shrink-0 shadow-sm shadow-brand-500/20"
+              title="Tạo 3 gợi ý theo đúng ngữ cảnh"
             >
-              <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'text-amber-400'}`} />
-              <span>Tạo</span>
-            </button>
-            <button
-              onClick={() => handleRegenerateAndSend()}
-              disabled={isRegenerating || !incomingMsgDisplay}
-              className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold flex items-center gap-1 transition-all disabled:opacity-50 cursor-pointer shrink-0 shadow-sm shadow-brand-500/20"
-              title="AI tự tạo xong và tự động gửi luôn vào Messenger ngay lập tức"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>Tạo & Gửi</span>
+              <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'text-amber-300'}`} />
+              <span>Tạo gợi ý</span>
             </button>
           </div>
 
@@ -738,35 +610,6 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
           </button>
         </div>
 
-        {/* Default Auto-Reply Option Selector Toolbar */}
-        <div className="flex items-center justify-between bg-surface-950/70 p-2 rounded-xl border border-surface-750/70">
-          <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1">
-            <Zap className="w-3 h-3 text-amber-400" />
-            <span>Mặc định Auto-Reply gửi:</span>
-          </span>
-          <div className="flex items-center gap-1">
-            {[1, 2, 3].map((opt) => {
-              const isActive = (settings?.defaultAutoReplyOption || 1) === opt;
-              return (
-                <button
-                  key={opt}
-                  onClick={async () => {
-                    await updateSettings({ defaultAutoReplyOption: opt as 1 | 2 | 3 });
-                  }}
-                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-amber-500 text-surface-950 shadow-sm shadow-amber-500/30'
-                      : 'bg-surface-800 text-slate-400 hover:text-slate-200 hover:bg-surface-750'
-                  }`}
-                  title={`Tự động gửi Option ${opt} khi có tin nhắn mới`}
-                >
-                  Option {opt}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Suggestions List or Call-to-Action */}
         {suggestions.length === 0 ? (
           <div className="p-4 rounded-xl border border-dashed border-surface-750 bg-surface-950/40 text-center space-y-3">
@@ -804,161 +647,129 @@ export const CopilotSidebar: React.FC<CopilotSidebarProps> = ({
               </div>
             )}
             {incomingMsgDisplay && (
-              <div className="flex gap-2 pt-1">
+              <div className="pt-1">
                 <button
                   onClick={() => handleRegenerate()}
                   disabled={isRegenerating}
-                  className="flex-1 py-2 px-3 rounded-xl bg-surface-800 hover:bg-surface-750 text-slate-200 font-semibold text-xs border border-surface-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                   title="Tạo 3 phương án để bạn xem trước"
                 >
-                  <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'text-amber-400'}`} />
-                  <span>{isRegenerating ? 'Đang tạo...' : '✨ Tạo xem trước'}</span>
-                </button>
-                <button
-                  onClick={() => handleRegenerateAndSend()}
-                  disabled={isRegenerating}
-                  className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-md shadow-brand-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                  title="AI tự tạo và tự gửi luôn vào Messenger"
-                >
-                  <Zap className="w-3.5 h-3.5 text-amber-300" />
-                  <span>⚡ Tạo & Gửi luôn</span>
+                  <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'text-amber-300'}`} />
+                  <span>{isRegenerating ? 'Đang tạo...' : '✨ Tạo 3 câu gợi ý'}</span>
                 </button>
               </div>
             )}
           </div>
         ) : (
-        <div className="space-y-3">
-          {suggestions.map((text, idx) => {
-            const optNum = (idx + 1) as 1 | 2 | 3;
-            const isAutoDefault = (settings?.defaultAutoReplyOption || 1) === optNum;
-            const isEditing = editingIndex === idx;
+          <div className="space-y-3">
+            {suggestions.map((text, idx) => {
+              const optNum = idx + 1;
+              const isEditing = editingIndex === idx;
 
-            const badgeLabel =
-              idx === 0 ? 'Tự nhiên / Chuẩn xác' : idx === 1 ? 'Chi tiết / Thân thiện' : 'Ngắn gọn / Hóm hỉnh';
-            const badgeColor =
-              idx === 0
-                ? 'bg-indigo-500/20 text-indigo-300'
-                : idx === 1
-                ? 'bg-emerald-500/20 text-emerald-300'
-                : 'bg-amber-500/20 text-amber-300';
+              const badgeLabel =
+                idx === 0 ? 'Tự nhiên / Chuẩn xác' : idx === 1 ? 'Chi tiết / Thân thiện' : 'Ngắn gọn / Hóm hỉnh';
+              const badgeColor =
+                idx === 0
+                  ? 'bg-indigo-500/20 text-indigo-300'
+                  : idx === 1
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-amber-500/20 text-amber-300';
 
-            return (
-              <div
-                key={idx}
-                className={`p-3.5 rounded-xl border transition-all duration-200 relative group ${
-                  isAutoDefault
-                    ? 'bg-surface-850 border-amber-500/60 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
-                    : 'bg-surface-850/70 border-surface-750 hover:border-surface-600'
-                }`}
-              >
-                {/* Option Badge & Default Status */}
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
+              return (
+                <div
+                  key={idx}
+                  className="p-3.5 rounded-xl border border-surface-750 hover:border-surface-600 bg-surface-850/70 transition-all duration-200 relative group"
+                >
+                  {/* Option Badge */}
+                  <div className="flex items-center justify-between mb-2">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeColor}`}>
-                      Option {optNum}: {badgeLabel}
+                      Lựa chọn {optNum}: {badgeLabel}
                     </span>
 
-                    {isAutoDefault ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
-                        ⭐ Mặc định tự gửi
-                      </span>
-                    ) : (
+                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={async () => {
-                          await updateSettings({ defaultAutoReplyOption: optNum });
-                        }}
-                        className="text-[10px] font-medium text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
-                        title={`Chọn Option ${optNum} làm phương án gửi mặc định`}
+                        onClick={() => handleCopy(text, idx)}
+                        className="p-1 rounded hover:bg-surface-700 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                        title="Sao chép câu này"
                       >
-                        ☆ Đặt làm mặc định
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleCopy(text, idx)}
-                      className="p-1 rounded hover:bg-surface-700 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-                      title="Sao chép câu này"
-                    >
-                      {copiedIndex === idx ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                    <button
-                      onClick={() => handleStartEdit(text, idx)}
-                      className="p-1 rounded hover:bg-surface-700 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-                      title="Chỉnh sửa câu trả lời"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Text Content / Edit Box */}
-                {isEditing ? (
-                  <div className="space-y-2">
-                    <textarea
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      rows={3}
-                      className="w-full text-xs bg-surface-950 border border-brand-500/50 rounded-lg p-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-brand-500 font-sans"
-                    />
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => setEditingIndex(null)}
-                        className="px-2 py-1 rounded text-[11px] bg-surface-700 text-slate-300 hover:bg-surface-600 cursor-pointer"
-                      >
-                        Hủy
+                        {copiedIndex === idx ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                       <button
-                        onClick={handleSaveAndSendEdit}
-                        className="flex items-center gap-1 px-3 py-1 rounded text-[11px] font-semibold bg-brand-600 text-white hover:bg-brand-500 cursor-pointer"
+                        onClick={() => handleStartEdit(text, idx)}
+                        className="p-1 rounded hover:bg-surface-700 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                        title="Chỉnh sửa câu trả lời"
                       >
-                        <Send className="w-3 h-3" />
-                        <span>Lưu & Gửi</span>
+                        <Edit3 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-200 leading-relaxed font-sans mb-3 select-text">
-                    {text}
-                  </p>
-                )}
 
-                {/* Action Buttons: Nhập vào ô chat & Gửi ngay */}
-                {!isEditing && (
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-surface-800/60">
-                    <button
-                      onClick={() => handleFillInput(text, idx)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-800 hover:bg-surface-750 text-slate-300 hover:text-white border border-surface-700 transition-all cursor-pointer"
-                      title="Chỉ điền câu này vào ô nhập tin nhắn mà chưa gửi vội"
-                    >
-                      {filledIndex === idx ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span className="text-emerald-300 font-semibold">Đã nhập</span>
-                        </>
-                      ) : (
-                        <>
-                          <CornerDownLeft className="w-3.5 h-3.5 text-brand-400" />
-                          <span>Nhập vào ô chat</span>
-                        </>
-                      )}
-                    </button>
+                  {/* Text Content / Edit Box */}
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        rows={3}
+                        className="w-full text-xs bg-surface-950 border border-brand-500/50 rounded-lg p-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-brand-500 font-sans"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setEditingIndex(null)}
+                          className="px-2 py-1 rounded text-[11px] bg-surface-700 text-slate-300 hover:bg-surface-600 cursor-pointer"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          onClick={handleSaveAndSendEdit}
+                          className="flex items-center gap-1 px-3 py-1 rounded text-[11px] font-semibold bg-brand-600 text-white hover:bg-brand-500 cursor-pointer"
+                        >
+                          <Send className="w-3 h-3" />
+                          <span>Lưu & Gửi</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-200 leading-relaxed font-sans mb-3 select-text">
+                      {text}
+                    </p>
+                  )}
 
-                    <button
-                      onClick={() => handleSend(text)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-sm shadow-brand-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                      title="Gửi câu trả lời này ngay lập tức"
-                    >
-                      <Send className="w-3 h-3" />
-                      <span>Gửi ngay</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  {/* Action Buttons: Nhập vào ô chat & Gửi ngay */}
+                  {!isEditing && (
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-surface-800/60">
+                      <button
+                        onClick={() => handleFillInput(text, idx)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-800 hover:bg-surface-750 text-slate-300 hover:text-white border border-surface-700 transition-all cursor-pointer"
+                        title="Chỉ điền câu này vào ô nhập tin nhắn mà chưa gửi vội"
+                      >
+                        {filledIndex === idx ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-emerald-300 font-semibold">Đã nhập</span>
+                          </>
+                        ) : (
+                          <>
+                            <CornerDownLeft className="w-3.5 h-3.5 text-brand-400" />
+                            <span>Nhập vào ô chat</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => handleSend(text)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 hover:bg-brand-500 text-white shadow-sm shadow-brand-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                        title="Gửi câu trả lời này ngay lập tức"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>Gửi ngay</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

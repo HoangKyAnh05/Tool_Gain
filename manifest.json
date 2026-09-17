@@ -6,7 +6,9 @@
   "host_permissions": [
     "https://*.facebook.com/*",
     "https://*.messenger.com/*",
-    "http://127.0.0.1:45678/*"
+    "http://127.0.0.1:45678/*",
+    "http://127.0.0.1:45679/*",
+    "http://127.0.0.1:45680/*"
   ],
   "content_scripts": [
     {

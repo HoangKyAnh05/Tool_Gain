@@ -1,4 +1,6 @@
-import { app, BrowserWindow, ipcMain, session, shell, webContents } from 'electron';
+import type { BrowserWindow, Tray, Event as ElectronEvent } from 'electron';
+import electron from 'electron';
+const { app, BrowserWindow: BrowserWindowClass, ipcMain, session, shell, webContents, Tray: TrayClass, Menu, nativeImage } = electron;
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
@@ -23,11 +25,106 @@ try {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
+let hasShownTrayNotification = false;
+
+function createTray() {
+  if (tray) return;
+
+  const iconPath = path.join(__dirname, '../assets/icon.ico');
+  const iconPngPath = path.join(__dirname, '../assets/icon.png');
+
+  let trayIcon: Electron.NativeImage;
+  if (fs.existsSync(iconPath)) {
+    trayIcon = nativeImage.createFromPath(iconPath);
+  } else if (fs.existsSync(iconPngPath)) {
+    trayIcon = nativeImage.createFromPath(iconPngPath);
+  } else {
+    trayIcon = nativeImage.createEmpty();
+  }
+
+  tray = new TrayClass(trayIcon);
+  tray.setToolTip('AI Omnichannel Assistant - Copilot & Auto-Reply (Đang chạy ngầm)');
+
+  const updateTrayMenu = () => {
+    const settings = db.getSettings();
+    const isAutoOn = !!settings.globalAutoReply;
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Mở AI Omnichannel Assistant',
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          } else {
+            createWindow();
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: `Auto-Reply Tổng: ${isAutoOn ? 'BẬT (●)' : 'TẮT (○)'}`,
+        click: () => {
+          const newStatus = !isAutoOn;
+          db.updateSettings({ globalAutoReply: newStatus });
+          autoReplyManager.setGlobalAutoReply(newStatus, newStatus ? 'Đã bật qua Tray' : 'Đã tắt qua Tray');
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('event:settings-updated', db.getSettings());
+          }
+          updateTrayMenu();
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Thoát hoàn toàn',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        }
+      }
+    ]);
+
+    tray?.setContextMenu(contextMenu);
+  };
+
+  updateTrayMenu();
+
+  tray.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        if (mainWindow.isFocused()) {
+          mainWindow.hide();
+        } else {
+          mainWindow.focus();
+        }
+      } else {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    } else {
+      createWindow();
+    }
+  });
+
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    } else {
+      createWindow();
+    }
+  });
+}
 
 function createWindow() {
   const iconPath = path.join(__dirname, '../assets/icon.ico');
 
-  mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindowClass({
     width: 1400,
     height: 900,
     minWidth: 1080,
@@ -53,6 +150,27 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Hide to system tray on window close
+  mainWindow.on('close', (event: any) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+
+      if (!hasShownTrayNotification) {
+        hasShownTrayNotification = true;
+        if (tray) {
+          try {
+            tray.displayBalloon({
+              title: 'AI Omnichannel Assistant',
+              content: 'Ứng dụng vẫn đang chạy ngầm trên khay hệ thống để hỗ trợ Auto-Reply và Chrome Extension.'
+            });
+          } catch {}
+        }
+      }
+      return false;
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -322,7 +440,8 @@ function startLocalHttpServer(port: number = 45678) {
     localHttpServer = http.createServer((req, res) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Access-Control-Allow-Private-Network, *');
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -432,6 +551,23 @@ function startLocalHttpServer(port: number = 45678) {
         return;
       }
 
+      if (req.method === 'POST' && req.url === '/api/reload-db') {
+        try {
+          db.reloadDatabase();
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('event:settings-updated', db.getSettings());
+            mainWindow.webContents.send('event:personas-updated', db.getPersonas());
+            mainWindow.webContents.send('event:contacts-updated', db.getContacts());
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, message: 'Database reloaded successfully' }));
+        } catch (e: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e.message }));
+        }
+        return;
+      }
+
       if (req.method === 'POST' && req.url === '/api/trigger-incoming') {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -503,16 +639,16 @@ function startLocalHttpServer(port: number = 45678) {
               return;
             }
 
-            console.log(`[Local API] generate-reply for "${contactName}": "${messageText}"`);
+            console.log(`[Local API] generate-reply for "${contactName}": "${messageText}" (explicit personaId: ${data.personaId || 'none (auto-detect)'}, context: ${data.context || data.contextHint || 'none'})`);
             const contact = db.getOrCreateContact(platform, contactName);
-            const persona = db.getPersonaById(contact.personaId) || db.getPersonaByCategory(contact.category);
             const replyResp = await geminiService.generateReply({
               platform,
               contactName,
               currentMessage: messageText,
               recentMessages: data.history || [],
-              personaId: persona.id,
-              contactCategory: contact.category
+              personaId: data.personaId ? data.personaId.trim() : undefined,
+              contactCategory: contact.category,
+              contextHint: data.context || data.contextHint || undefined
             });
 
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -682,48 +818,74 @@ function startLocalHttpServer(port: number = 45678) {
   }
 }
 
-app.whenReady().then(async () => {
-  setupPlatformSessions();
-  setupIpcHandlers();
-  createWindow();
+const gotTheLock = app.requestSingleInstanceLock();
 
-  // Start internal local HTTP server for external Python tools
-  startLocalHttpServer();
-
-  // Automatically start Web2API background server
-  web2apiServerManager.startServer().catch((e) => {
-    console.warn('[Main] Auto-start Web2API server error:', e);
-  });
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // Focus or restore window if another instance is launched
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    } else {
       createWindow();
     }
   });
-});
 
-app.on('before-quit', async () => {
-  // Gracefully stop local HTTP server
-  if (localHttpServer) {
-    try { localHttpServer.close(); } catch {}
-  }
+  app.whenReady().then(async () => {
+    setupPlatformSessions();
+    setupIpcHandlers();
+    createWindow();
+    createTray();
 
-  // Gracefully stop background python server
-  web2apiServerManager.stopServer();
+    // Start internal local HTTP server for external Python tools & Chrome extension
+    startLocalHttpServer();
 
-  const platforms = ['persist:zalo', 'persist:messenger', 'persist:telegram'];
-  for (const partition of platforms) {
-    try {
-      const ses = session.fromPartition(partition);
-      await ses.flushStorageData();
-      await ses.cookies.flushStore();
-    } catch {}
-  }
-});
+    // Automatically start Web2API background server
+    web2apiServerManager.startServer().catch((e) => {
+      console.warn('[Main] Auto-start Web2API server error:', e);
+    });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+    app.on('activate', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        createWindow();
+      }
+    });
+  });
+
+  app.on('before-quit', async () => {
+    isQuitting = true;
+
+    if (tray) {
+      try { tray.destroy(); } catch {}
+    }
+
+    // Gracefully stop local HTTP server
+    if (localHttpServer) {
+      try { localHttpServer.close(); } catch {}
+    }
+
+    // Gracefully stop background python server
+    web2apiServerManager.stopServer();
+
+    const platforms = ['persist:zalo', 'persist:messenger', 'persist:telegram'];
+    for (const partition of platforms) {
+      try {
+        const ses = session.fromPartition(partition);
+        await ses.flushStorageData();
+        await ses.cookies.flushStore();
+      } catch {}
+    }
+  });
+
+  app.on('window-all-closed', () => {
+    // Keep app running in background / tray when all windows are closed
+  });
+}
 

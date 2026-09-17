@@ -117,6 +117,11 @@ export class DatabaseManager {
     }
   }
 
+  public reloadDatabase(): DatabaseSchema {
+    this.data = this.loadDatabase();
+    return this.data;
+  }
+
   // --- Settings ---
   public getSettings(): AppSettings {
     return this.data.settings;
@@ -202,6 +207,49 @@ export class DatabaseManager {
       )
     );
     if (existing) {
+      if (!existing.personaId || existing.personaId === 'persona_customer') {
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes('đào phương hiền') || lowerName.includes('dao phuong hien') || lowerName.includes('phương hiền') || lowerName.includes('phuong hien') || lowerName.includes('hiền')) {
+          existing.personaId = 'persona_dao_phuong_hien';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('minh trí') || lowerName.includes('minh tri') || lowerName.includes('trí') || lowerName.includes('tri')) {
+          existing.personaId = 'persona_minh_tri';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('lý nguyễn') || lowerName.includes('ly nguyen')) {
+          existing.personaId = 'persona_ly_nguyen';
+          this.saveDatabase();
+        } else if (lowerName.includes('lê hoàng long') || lowerName.includes('le hoang long') || lowerName.includes('hoàng long')) {
+          existing.personaId = 'persona_le_hoang_long';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('tấn vũ') || lowerName.includes('tan vu')) {
+          existing.personaId = 'persona_tan_vu';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('chu thanh hải') || lowerName.includes('chu thanh hai')) {
+          existing.personaId = 'persona_chu_thanh_hai';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('vy tường') || lowerName.includes('vy tuong')) {
+          existing.personaId = 'persona_vy_tuong';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('quang huy') || lowerName.includes('huy quang')) {
+          existing.personaId = 'persona_quang_huy';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('thúy viên viên') || lowerName.includes('thuý viên viên') || lowerName.includes('thuy vien vien')) {
+          existing.personaId = 'persona_thuy_vien_vien';
+          existing.category = 'friend';
+          this.saveDatabase();
+        } else if (lowerName.includes('trọng') || lowerName.includes('tino')) {
+          existing.personaId = 'persona_tino_trong';
+          existing.category = 'friend';
+          this.saveDatabase();
+        }
+      }
       return existing;
     }
 
@@ -213,12 +261,39 @@ export class DatabaseManager {
     if (lowerName.includes('trọng') || lowerName.includes('tino')) {
       defaultCategory = 'friend';
       assignedPersonaId = 'persona_tino_trong';
+    } else if (lowerName.includes('minh trí') || lowerName.includes('minh tri') || lowerName.includes('trí') || lowerName.includes('tri')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_minh_tri';
     } else if (lowerName.includes('tạ quang minh') || lowerName.includes('quang minh') || lowerName.includes('chip') || lowerName.includes('minh')) {
       defaultCategory = 'friend';
       assignedPersonaId = 'persona_ta_quang_minh';
     } else if (lowerName.includes('nguyễn duy quân') || lowerName.includes('duy quân') || lowerName.includes('dzy.wuan') || lowerName.includes('quân')) {
       defaultCategory = 'friend';
       assignedPersonaId = 'persona_nguyen_duy_quan';
+    } else if (lowerName.includes('đào phương hiền') || lowerName.includes('dao phuong hien') || lowerName.includes('phương hiền') || lowerName.includes('phuong hien') || lowerName.includes('hiền')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_dao_phuong_hien';
+    } else if (lowerName.includes('tấn vũ') || lowerName.includes('tan vu') || lowerName.includes('tấn') || lowerName === 'vũ' || lowerName.includes('vu tan')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_tan_vu';
+    } else if (lowerName.includes('chu thanh hải') || lowerName.includes('chu thanh hai') || lowerName.includes('thanh hải') || lowerName.includes('thanh hai')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_chu_thanh_hai';
+    } else if (lowerName.includes('lê hoàng long') || lowerName.includes('le hoang long') || lowerName.includes('hoàng long') || lowerName.includes('hoang long') || lowerName === 'long') {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_le_hoang_long';
+    } else if (lowerName.includes('vy tường') || lowerName.includes('vy tuong') || lowerName.includes('tường') || lowerName.includes('tuong')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_vy_tuong';
+    } else if (lowerName.includes('quang huy') || lowerName.includes('huy quang')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_quang_huy';
+    } else if (lowerName.includes('thúy viên viên') || lowerName.includes('thuý viên viên') || lowerName.includes('thuy vien vien') || lowerName.includes('viên viên') || lowerName.includes('thúy') || lowerName.includes('thuý') || lowerName.includes('thuy')) {
+      defaultCategory = 'friend';
+      assignedPersonaId = 'persona_thuy_vien_vien';
+    } else if (lowerName.includes('lý nguyễn') || lowerName.includes('ly nguyen') || lowerName.includes('lý') || lowerName === 'ly') {
+      defaultCategory = 'customer';
+      assignedPersonaId = 'persona_ly_nguyen';
     } else if (lowerName.includes('bạn') || lowerName.includes('em') || lowerName.includes('bro') || lowerName.includes('kỳ') || lowerName.includes('hoàng') || lowerName.includes('long') || lowerName.includes('anh') || lowerName.includes('tuấn')) {
       defaultCategory = 'friend';
     } else if (lowerName.includes('nv') || lowerName.includes('team') || lowerName.includes('nhân viên') || lowerName.includes('dev') || lowerName.includes('kế toán')) {

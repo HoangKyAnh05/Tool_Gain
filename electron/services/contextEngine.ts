@@ -45,22 +45,96 @@ export class ContextEngine {
   }
 
   /**
-   * Resolve Persona for a contact or request
+   * Helper to normalize strings for robust accent-insensitive matching
+   */
+  private normalizeString(s: string): string {
+    return (s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/[\s\-_]+/g, '')
+      .trim();
+  }
+
+  /**
+   * Find a specialized custom persona tailored for a specific contact name
+   */
+  public findPersonaForContactName(contactName: string): Persona | null {
+    if (!contactName || contactName === 'Đoạn chat hiện tại' || contactName === 'Hội thoại đang mở') {
+      return null;
+    }
+
+    const normName = this.normalizeString(contactName);
+    if (!normName || normName.length < 2) return null;
+
+    const personas = db.getPersonas();
+
+    // 1. Direct match by persona ID
+    for (const p of personas) {
+      const normId = this.normalizeString(p.id.replace('persona_', ''));
+      if (normId === normName || (normName.length >= 4 && normId.includes(normName)) || (normId.length >= 4 && normName.includes(normId))) {
+        return p;
+      }
+    }
+
+    // 2. Match by persona title / name
+    for (const p of personas) {
+      const normPersonaName = this.normalizeString(p.name);
+      if (normPersonaName.includes(normName) || (normName.length >= 4 && normName.includes(normPersonaName))) {
+        return p;
+      }
+    }
+
+    // 3. Match by prompt content (@ContactName mentions)
+    for (const p of personas) {
+      const normPrompt = this.normalizeString(p.systemPrompt || '');
+      if (normPrompt.includes(`@${normName}`) || normPrompt.includes(normName)) {
+        return p;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve Persona for a contact or request:
+   * 1. If explicit personaId is chosen (e.g. Gái Xinh, Sếp, Cầu Lông, Mua Sắm), use it.
+   * 2. If NO option chosen (Default / Auto), automatically pick the custom persona for that contact (if exists).
+   * 3. Fallback to category default (Friend / Customer / Employee).
    */
   public resolvePersona(req: GenerateReplyRequest, contact?: Contact | null): Persona {
-    if (req.personaId) {
-      const p = db.getPersonaById(req.personaId);
-      if (p) return p;
+    // 1. User explicitly selected a style option
+    if (req.personaId && req.personaId.trim()) {
+      const explicit = db.getPersonaById(req.personaId);
+      if (explicit) {
+        console.log(`[ContextEngine] Using explicit persona: "${explicit.name}" (${explicit.id})`);
+        return explicit;
+      }
     }
 
-    const targetCategory = req.contactCategory || (contact ? contact.category : 'customer');
+    // 2. Auto-detect specialized persona for this specific contact
+    const contactName = req.contactName || (contact ? contact.name : '');
+    const matchedPersonalPersona = this.findPersonaForContactName(contactName);
+    if (matchedPersonalPersona) {
+      console.log(`[ContextEngine] Auto-resolved specialized persona for "${contactName}": "${matchedPersonalPersona.name}" (${matchedPersonalPersona.id})`);
+      return matchedPersonalPersona;
+    }
 
+    // 3. Check contact's saved persona in DB
     if (contact && contact.personaId) {
       const p = db.getPersonaById(contact.personaId);
-      if (p && p.category === targetCategory) return p;
+      if (p) {
+        console.log(`[ContextEngine] Using contact assigned persona: "${p.name}" (${p.id})`);
+        return p;
+      }
     }
 
-    return db.getPersonaByCategory(targetCategory);
+    // 4. Fallback to category default
+    const targetCategory = req.contactCategory || (contact ? contact.category : 'friend');
+    const fallback = db.getPersonaByCategory(targetCategory);
+    console.log(`[ContextEngine] Fallback persona for "${contactName}" (category: ${targetCategory}): "${fallback.name}"`);
+    return fallback;
   }
 
 
@@ -113,7 +187,7 @@ Trả về JSON thuần túy (không bọc trong \`\`\`json markdown blocks, ch�
     const userPrompt = `Người đang chat: ${req.contactName}
 Nền tảng: ${req.platform}
 Phân nhóm: ${persona.category}
-
+${req.contextHint ? `\nĐỊNH HƯỚNG / NGỮ CẢNH ĐẶC BIỆT CỦA CÂU TRẢ LỜI: "${req.contextHint}"\n` : ''}
 Lịch sử trò chuyện gần nhất:
 ${historyBlock || '(Chưa có lịch sử trước đó)'}
 
